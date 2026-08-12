@@ -1,0 +1,15 @@
+[package]
+name = "loopy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ndarray = "0.17.2"
+
+[dev-dependencies]
+criterion = "0.8.2"
+
+[[bench]]
+name = "bench_factors"
+path = "benches/bench_factors.rs"
+harness = false
