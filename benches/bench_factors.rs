@@ -10,7 +10,7 @@ fn bench_dense_marginalize(c: &mut Criterion) {
     let data = array![
         [[1.0, 2.0], [3.0, 4.0]],
         [[5.0, 6.0], [7.0, 8.0]]
-    ].into_dyn();
+    ].mapv(|x: f64| x.ln()).into_dyn();
     let f = DenseFactor::new(scope, data);
 
     c.bench_function("dense_marginalize_0", |b| {

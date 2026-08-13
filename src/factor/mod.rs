@@ -1,6 +1,7 @@
 pub mod factor;
 pub mod discrete_factor;
 pub mod dense_factor;
+pub mod log_utils;
 pub mod unary_factor;
 
 pub use factor::Factor;

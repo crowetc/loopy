@@ -12,6 +12,7 @@ use ndarray::{ArrayD, IxDyn};
 
 use super::Factor;
 use super::DiscreteFactor;
+use super::log_utils::{lse_update, lse_finalize};
 
 /// Dense table-based factor over discrete variables (log-space).
 #[derive(Clone, Debug)]
@@ -60,7 +61,6 @@ impl DenseFactor {
             }
         }
 
-
         // 2) fast path: nothing to eliminate
         if idx_marg.is_empty() {
             return DenseFactor::new(self.scope.clone(), self.data.clone());
@@ -71,15 +71,12 @@ impl DenseFactor {
         order.extend_from_slice(&idx_keep);
         order.extend_from_slice(&idx_marg);
 
-        // 4) permute and make contiguous (owned)
+        // 4) construct permuted view
         let permuted = self.data.view().permuted_axes(order);
 
         // 5) shapes and sizes (derive cardinalities from data.shape())
         let kept_shape: Vec<usize> = idx_keep.iter().map(|&i| self.data.shape()[i]).collect();
-        let elim_shape: Vec<usize> = idx_marg.iter().map(|&i| self.data.shape()[i]).collect();
-
         let kept_size = if kept_shape.is_empty() { 1 } else { kept_shape.iter().product::<usize>() };
-        let elim_size = if elim_shape.is_empty() { 1 } else { elim_shape.iter().product::<usize>() };
 
         // 6) all eliminated -> scalar DenseFactor (log-space)
         if kept_shape.is_empty() {
@@ -93,21 +90,28 @@ impl DenseFactor {
             return DenseFactor::new(Vec::new(), out);
         }
 
-        // 7) iterate over outer axis (kept axes collapsed) and reduce each block
-        //    This avoids materializing the entire permuted array into a Vec.
-        //    `outer_iter()` yields views over the remaining axes (the eliminated axes).
+        // 7) compute eliminated size and reshape into (kept_size, elim_size)
+        let elim_size = idx_marg.iter().map(|&i| self.data.shape()[i]).product::<usize>();
+
+        // 8) iterate over permuted view without copying:
+        //    permuted.iter() traverses elements in logical order where the last axis
+        //    is the fastest-changing. Because we placed marginalized axes last,
+        //    marginalized axes are the fastest-changing and thus contiguous blocks
+        //    of length `elim_size` correspond to one kept-assignment.
         let mut out_vec = Vec::with_capacity(kept_size);
-        for lane in permuted.outer_iter() {
-            // lane is a view over the eliminated axes for one kept-index
+        let mut it = permuted.iter();
+
+        for _ in 0..kept_size {
             let mut cur_max = f64::NEG_INFINITY;
             let mut cur_sum = 0.0;
-            for &x in lane.iter() {
+            for _ in 0..elim_size {
+                // unwrap is safe because sizes are consistent
+                let &x = it.next().expect("iterator length must match kept_size * elim_size");
                 lse_update(x, &mut cur_max, &mut cur_sum);
             }
             out_vec.push(lse_finalize(cur_max, cur_sum));
         }
 
-        // sanity check (optional in debug builds)
         debug_assert_eq!(out_vec.len(), kept_size);
 
         let out = ArrayD::from_shape_vec(IxDyn(&kept_shape), out_vec)
@@ -116,6 +120,7 @@ impl DenseFactor {
         DenseFactor::new(new_scope, out)
     }
 }
+
 
 /// Implement Factor trait
 impl Factor for DenseFactor {
@@ -133,34 +138,6 @@ impl Factor for DenseFactor {
 impl DiscreteFactor for DenseFactor {
     fn card(&self) -> &[usize] {
         self.data.shape()
-    }
-}
-
-/// Numerically stable log-sum-exp helpers (private)
-#[inline]
-fn lse_update(x: f64, cur_max: &mut f64, cur_sum: &mut f64) {
-    if x.is_infinite() && x.is_sign_negative() {
-        return;
-    }
-    if *cur_max == f64::NEG_INFINITY {
-        *cur_max = x;
-        *cur_sum = 1.0;
-    } else if x > *cur_max {
-        // new max: rescale sum
-        let scale = (*cur_max - x).exp();
-        *cur_sum = *cur_sum * scale + 1.0;
-        *cur_max = x;
-    } else {
-        *cur_sum += (x - *cur_max).exp();
-    }
-}
-
-#[inline]
-fn lse_finalize(cur_max: f64, cur_sum: f64) -> f64 {
-    if cur_max == f64::NEG_INFINITY {
-        f64::NEG_INFINITY
-    } else {
-        cur_max + cur_sum.ln()
     }
 }
 
