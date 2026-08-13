@@ -9,6 +9,18 @@ ndarray = "0.17.2"
 [dev-dependencies]
 criterion = "0.8.2"
 
+[profile.dev]
+opt-level = 0
+debug = true
+incremental = true
+overflow-checks = true
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = false
+
 [[bench]]
 name = "bench_factors"
 path = "benches/bench_factors.rs"
