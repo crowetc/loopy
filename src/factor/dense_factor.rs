@@ -10,6 +10,7 @@
 use std::f64;
 use ndarray::{ArrayD, IxDyn};
 
+use super::FactorKind;
 use super::Factor;
 use super::DiscreteFactor;
 use super::log_utils::{lse_update, lse_finalize};
@@ -36,10 +37,25 @@ impl DenseFactor {
         &self.data
     }
 
+    /// Consume the DenseFactor and return its owned parts.
+    pub fn into_parts(self) -> (Vec<usize>, ArrayD<f64>) {
+        (self.scope, self.data)
+    }
+
+    /// Consume and return the owned data array.
+    pub fn into_data(self) -> ArrayD<f64> {
+        self.data
+    }
+
+    /// Consume and return the owned scope vector.
+    pub fn into_scope(self) -> Vec<usize> {
+        self.scope
+    }
+
     /// Private kernel: permute so kept axes come first, eliminated axes last,
     /// make contiguous, then iterate contiguous blocks of length `elim_size`
     /// and reduce each block with LSE.
-    fn marginalize_kernel(&self, vars: &[usize]) -> DenseFactor {
+    pub(crate) fn marginalize_kernel(&self, vars: &[usize]) -> DenseFactor {
         // 1) partition axes
         let mut vars_sorted = vars.to_vec();
         vars_sorted.sort_unstable();
@@ -128,8 +144,12 @@ impl Factor for DenseFactor {
         &self.scope
     }
 
-    fn marginalize(&self, vars: &[usize]) -> Self {
-        self.marginalize_kernel(vars)
+    fn marginalize(self, vars: &[usize]) -> FactorKind {
+        let reduced = self.marginalize_kernel(vars);
+        match reduced.scope.len() {
+            1 => FactorKind::Unary(crate::factor::utils::dense_into_unary(reduced)),
+            _ => FactorKind::Dense(reduced),
+        }
     }
 }
 
@@ -148,6 +168,7 @@ impl DiscreteFactor for DenseFactor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::factor::UnaryFactor;
     use ndarray::array;
 
     // Helpers to build log-space arrays for tests
@@ -163,6 +184,21 @@ mod tests {
         a.iter().zip(b.iter()).all(|(x, y)| (x - y).abs() <= tol)
     }
 
+    // Test helpers to reduce boilerplate
+    fn expect_dense(f: FactorKind) -> DenseFactor {
+        match f {
+            FactorKind::Dense(d) => d,
+            other => panic!("expected Dense factor, got {:?}", other),
+        }
+    }
+
+    // fn expect_unary(f: FactorKind) -> UnaryFactor {
+    //     match f {
+    //         FactorKind::Unary(u) => u,
+    //         other => panic!("expected Unary factor, got {:?}", other),
+    //     }
+    // }
+
     #[test]
     fn test_scope() {
         let f = DenseFactor::new(
@@ -170,7 +206,7 @@ mod tests {
             array![[1.0_f64, 2.0], [3.0, 4.0]].mapv(|x| x.ln()).into_dyn(),
         );
         assert_eq!(f.scope(), &[0, 1]);
-        assert_eq!(f.ndim(), 2);
+        assert_eq!(f.data().ndim(), 2);
     }
 
     #[test]
@@ -183,8 +219,9 @@ mod tests {
         let g = f.marginalize(&[0]);
         let expected = ln_array1(&[4.0, 6.0]);
 
-        assert_eq!(g.scope(), &[1]);
-        assert!(arrays_close(g.data(), &expected, 1e-12));
+        let d = expect_dense(g);
+        assert_eq!(d.scope(), &[1]);
+        assert!(arrays_close(d.data(), &expected, 1e-12));
     }
 
     #[test]
@@ -209,7 +246,8 @@ mod tests {
         let g = f.marginalize(&[0, 2]);
         let expected = ln_array1(&[14.0, 22.0]);
 
-        assert_eq!(g.scope(), &[1]);
-        assert!(arrays_close(g.data(), &expected, 1e-12));
+        let d = expect_dense(g);
+        assert_eq!(d.scope(), &[1]);
+        assert!(arrays_close(d.data(), &expected, 1e-12));
     }
 }

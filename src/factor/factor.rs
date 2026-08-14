@@ -1,4 +1,4 @@
-//! Core Factor trait.
+use crate::factor::FactorKind;
 
 pub trait Factor {
     /// Variables in the factor's scope.
@@ -9,6 +9,9 @@ pub trait Factor {
         return self.scope().len();
     }
 
-    /// Marginalize out the given variables.
-    fn marginalize(&self, vars: &[usize]) -> Self where Self: Sized;
+    /// Consume self and marginalize the given variables.
+    fn marginalize(self, vars: &[usize]) -> FactorKind;
+
+    // /// Consume self and combine with another factor.
+    // fn combine(self, other: FactorKind) -> FactorKind;
 }

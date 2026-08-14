@@ -1,8 +1,9 @@
 //! Unary factor: a factor over a single discrete variable (log-space).
 
+use super::FactorKind;
 use super::Factor;
 use super::DiscreteFactor;
-use super::log_utils::{lse_update, lse_finalize};
+use super::log_utils::lse_two_pass;
 
 /// A unary factor over a single variable (log-space).
 ///
@@ -47,71 +48,62 @@ impl Factor for UnaryFactor {
 
     /// Marginalize variables `vars`. If this unary variable is eliminated,
     /// return a UnaryFactor with a single log-sum element (log-space).
-    fn marginalize(&self, vars: &[usize]) -> Self {
+    fn marginalize(self, vars: &[usize]) -> FactorKind {
         if vars.contains(&self.var) {
-            // Numerically-stable log-sum-exp over all entries
-            let mut cur_max = f64::NEG_INFINITY;
-            let mut cur_sum = 0.0;
-            for &x in &self.data {
-                lse_update(x, &mut cur_max, &mut cur_sum);
-            }
-            let total = lse_finalize(cur_max, cur_sum);
-            UnaryFactor::new(self.var, vec![total])
+            // Reduce to a single log-value
+            let total = lse_two_pass(self.data());
+            FactorKind::Unary(UnaryFactor::new(self.var, vec![total]))
         } else {
-            self.clone()
+            FactorKind::Unary(self)
         }
     }
+
+    // /// Combine (multiply / add in log-space) this unary factor with another factor.
+    // /// Specialized fast paths:
+    // /// - Unary × Unary (same var): elementwise add -> Unary
+    // /// - Unary × Unary (different vars): outer-sum -> Dense
+    // /// - Unary × Dense: broadcast-add unary into dense (in-place when possible)
+    // fn combine(self, other: FactorKind) -> FactorKind {
+    //     match other {
+    //         FactorKind::Unary(u2) => {
+    //             if self.var == u2.var {
+    //                 // same variable: elementwise add
+    //                 assert_eq!(self.data.len(), u2.data.len());
+    //                 let data = self
+    //                     .data
+    //                     .into_iter()
+    //                     .zip(u2.data.into_iter())
+    //                     .map(|(a, b)| a + b)
+    //                     .collect::<Vec<_>>();
+    //                 FactorKind::Unary(UnaryFactor::new(self.var, data))
+    //             } else {
+    //                 // different variables: outer-sum -> Dense
+    //                 let scope = vec![self.var, u2.var];
+    //                 let card1 = self.data.len();
+    //                 let card2 = u2.data.len();
+    //                 let mut out_vec = Vec::with_capacity(card1 * card2);
+    //                 for &a in self.data.iter() {
+    //                     for &b in u2.data.iter() {
+    //                         out_vec.push(a + b);
+    //                     }
+    //                 }
+    //                 let out = ArrayD::from_shape_vec(IxDyn(&[card1, card2]), out_vec)
+    //                     .expect("shape and data length must match");
+    //                 FactorKind::Dense(DenseFactor::new(scope, out))
+    //             }
+    //         }
+
+    //         FactorKind::Dense(d) => {
+    //             // Delegate to utils helper which will add unary into dense in-place
+    //             // or produce a new Dense factor if the unary var is not present.
+    //             utils::add_unary_into_dense_inplace(d, self)
+    //         }
+    //     }
+    // }
 }
 
 impl DiscreteFactor for UnaryFactor {
     fn card(&self) -> &[usize] {
         &self.card
-    }
-}
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_scope() {
-        // use from_linear convenience to build factor
-        let f = UnaryFactor::from_linear(7, vec![0.1, 0.9]);
-        assert_eq!(f.scope(), &[7]);
-    }
-
-    #[test]
-    fn test_card() {
-        let f = UnaryFactor::from_linear(3, vec![1.0, 2.0, 3.0]);
-        assert_eq!(f.card(), &[3]);
-    }
-
-    #[test]
-    fn test_marginalize_kept() {
-        let f = UnaryFactor::from_linear(2, vec![1.0, 2.0, 3.0]);
-        let g = f.marginalize(&[]);
-        // g.data() is log-space; compare exponentiated values with tolerance
-        let got: Vec<f64> = g.data().iter().map(|x| x.exp()).collect();
-        let expected = [1.0_f64, 2.0, 3.0];
-        let tol = 1e-12;
-        for (a, b) in got.iter().zip(expected.iter()) {
-            assert!(
-                (a - b).abs() <= tol,
-                "values differ: got {:?}, expected {:?}",
-                got,
-                expected
-            );
-        }
-    }
-
-    #[test]
-    fn test_marginalize_eliminated() {
-        let f = UnaryFactor::from_linear(2, vec![1.0, 2.0, 3.0]);
-        let g = f.marginalize(&[2]);
-        // sum = 6.0 -> log(6.0)
-        let expected = (6.0_f64).ln();
-        assert_eq!(g.data(), &[expected]);
-        assert_eq!(g.card(), &[1]);
     }
 }

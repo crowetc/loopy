@@ -1,7 +1,7 @@
 // benches/dense_marginalize.rs
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
-use loopy::factor::{DenseFactor, UnaryFactor, Factor};
+use loopy::factor::{DenseFactor, UnaryFactor, Factor, FactorKind};
 use ndarray::IxDyn;
 use ndarray::ArrayD;
 
@@ -13,8 +13,12 @@ fn bench_dense_marginalize(c: &mut Criterion) {
 
     c.bench_function("dense_marginalize_100", |b| {
         b.iter(|| {
-            let g = black_box(&f).marginalize(&[0usize]);
-            black_box(g);
+            let out = black_box(f.clone()).marginalize(&[0usize]);
+            // touch the result so the optimizer can't elide the work
+            match out {
+                FactorKind::Dense(d) => black_box(d.data().len()),
+                FactorKind::Unary(u) => black_box(u.data().len()),
+            }
         })
     });
 }
@@ -25,8 +29,11 @@ fn bench_unary_marginalize(c: &mut Criterion) {
     let f = UnaryFactor::new(0, vec![0.0f64; 100]); // log(1.0) == 0.0
     c.bench_function("unary_marginalize_100", |b| {
         b.iter(|| {
-            let g = black_box(&f).marginalize(&[0usize]);
-            black_box(g);
+            let out = black_box(f.clone()).marginalize(&[0usize]);
+            match out {
+                FactorKind::Dense(d) => black_box(d.data().len()),
+                FactorKind::Unary(u) => black_box(u.data().len()),
+            }
         })
     });
 }
