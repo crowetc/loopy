@@ -36,11 +36,4 @@ impl FactorKind {
             }
         }
     }
-
-    // pub fn combine(self, other: FactorKind) -> FactorKind {
-    //     // pattern-match pairs and dispatch to specialized fast paths
-    //     // e.g., (Scalar, X) -> add scalar in-place; (Unary, Dense) -> broadcast add in-place
-    //     // implement specialized helpers in utils or impl blocks
-    //     unimplemented!()
-    // }
 }

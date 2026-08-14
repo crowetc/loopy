@@ -11,7 +11,4 @@ pub trait Factor {
 
     /// Consume self and marginalize the given variables.
     fn marginalize(self, vars: &[usize]) -> FactorKind;
-
-    // /// Consume self and combine with another factor.
-    // fn combine(self, other: FactorKind) -> FactorKind;
 }

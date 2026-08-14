@@ -3,17 +3,12 @@
 //! A `DenseFactor` stores:
 //! - a `scope`: variable IDs
 //! - a dense `ndarray::ArrayD<f64>` data containing log-potentials
-//!
-//! Marginalization is implemented by permuting axes so eliminated axes are fastest-
-//! changing, then summing (in log-space via LSE) over contiguous blocks.
 
 use std::f64;
 use ndarray::{ArrayD, IxDyn};
 
-use super::FactorKind;
-use super::Factor;
-use super::DiscreteFactor;
-use super::log_utils::{lse_update, lse_finalize};
+use super::{DiscreteFactor, Factor, FactorKind};
+use super::log_utils::{lse_finalize, lse_update};
 
 /// Dense table-based factor over discrete variables (log-space).
 #[derive(Clone, Debug)]
@@ -32,12 +27,30 @@ impl DenseFactor {
         Self { scope, data }
     }
 
+    /// Construct a dense factor from **linear-space** values.
+    ///
+    /// Converts each value to log-space via `ln`..
+    ///
+    /// # Panics
+    /// Panics if `scope.len() != linear.ndim()`.
+    pub fn from_linear(scope: Vec<usize>, linear: ArrayD<f64>) -> Self {
+        assert_eq!(
+            scope.len(),
+            linear.ndim(),
+            "scope length must match number of data dimensions"
+        );
+
+        // Map all values to log-space without altering shape.
+        let data = linear.mapv(|x| x.ln());
+        Self { scope, data }
+    }
+
     /// Access the underlying data (log-space).
     pub fn data(&self) -> &ArrayD<f64> {
         &self.data
     }
 
-    /// Consume the DenseFactor and return its owned parts.
+    /// Consume the factor and return `(scope, data)`.
     pub fn into_parts(self) -> (Vec<usize>, ArrayD<f64>) {
         (self.scope, self.data)
     }
@@ -52,11 +65,15 @@ impl DenseFactor {
         self.scope
     }
 
-    /// Private kernel: permute so kept axes come first, eliminated axes last,
-    /// make contiguous, then iterate contiguous blocks of length `elim_size`
-    /// and reduce each block with LSE.
+    /// Core marginalization kernel.
+    ///
+    /// This method:
+    /// 1. Partitions axes into kept vs. marginalized.
+    /// 2. Permutes so kept axes come first.
+    /// 3. Iterates contiguous blocks corresponding to marginalized axes.
+    /// 4. Performs log-sum-exp reduction over each block.
     pub(crate) fn marginalize_kernel(&self, vars: &[usize]) -> DenseFactor {
-        // 1) partition axes
+        // ---- Partition axes -------------------------------------------------
         let mut vars_sorted = vars.to_vec();
         vars_sorted.sort_unstable();
 
@@ -77,24 +94,23 @@ impl DenseFactor {
             }
         }
 
-        // 2) fast path: nothing to eliminate
+        // ---- Fast path: nothing to eliminate --------------------------------
         if idx_marg.is_empty() {
             return DenseFactor::new(self.scope.clone(), self.data.clone());
         }
 
-        // 3) permutation: KEPT axes first, then MARGINALIZED axes last
+        // ---- Permute axes ----------------------------------------------------
         let mut order = Vec::with_capacity(idx_keep.len() + idx_marg.len());
         order.extend_from_slice(&idx_keep);
         order.extend_from_slice(&idx_marg);
 
-        // 4) construct permuted view
         let permuted = self.data.view().permuted_axes(order);
 
-        // 5) shapes and sizes (derive cardinalities from data.shape())
+        // ---- Compute shapes --------------------------------------------------
         let kept_shape: Vec<usize> = idx_keep.iter().map(|&i| self.data.shape()[i]).collect();
         let kept_size = if kept_shape.is_empty() { 1 } else { kept_shape.iter().product::<usize>() };
 
-        // 6) all eliminated -> scalar DenseFactor (log-space)
+        // ---- All axes eliminated -> scalar -----------------------------------
         if kept_shape.is_empty() {
             let mut cur_max = f64::NEG_INFINITY;
             let mut cur_sum = 0.0;
@@ -106,14 +122,9 @@ impl DenseFactor {
             return DenseFactor::new(Vec::new(), out);
         }
 
-        // 7) compute eliminated size and reshape into (kept_size, elim_size)
+        // ---- Iterate contiguous blocks --------------------------------------
         let elim_size = idx_marg.iter().map(|&i| self.data.shape()[i]).product::<usize>();
 
-        // 8) iterate over permuted view without copying:
-        //    permuted.iter() traverses elements in logical order where the last axis
-        //    is the fastest-changing. Because we placed marginalized axes last,
-        //    marginalized axes are the fastest-changing and thus contiguous blocks
-        //    of length `elim_size` correspond to one kept-assignment.
         let mut out_vec = Vec::with_capacity(kept_size);
         let mut it = permuted.iter();
 
@@ -138,7 +149,7 @@ impl DenseFactor {
 }
 
 
-/// Implement Factor trait
+/// Implement `Factor` trait
 impl Factor for DenseFactor {
     fn scope(&self) -> &[usize] {
         &self.scope
@@ -153,8 +164,7 @@ impl Factor for DenseFactor {
     }
 }
 
-/// Implement DiscreteFactor trait without storing cards explicitly:
-/// return the ndarray shape slice which corresponds to axis cardinalities.
+/// Implement `DiscreteFactor` trait.
 impl DiscreteFactor for DenseFactor {
     fn card(&self) -> &[usize] {
         self.data.shape()
@@ -168,36 +178,16 @@ impl DiscreteFactor for DenseFactor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::factor::UnaryFactor;
     use ndarray::array;
 
-    // Helpers to build log-space arrays for tests
     fn ln_array1(v: &[f64]) -> ArrayD<f64> {
         ArrayD::from_shape_vec(IxDyn(&[v.len()]), v.iter().map(|x| x.ln()).collect()).unwrap()
     }
 
-    // Elementwise absolute tolerance comparison for ArrayD<f64>
     fn arrays_close(a: &ArrayD<f64>, b: &ArrayD<f64>, tol: f64) -> bool {
-        if a.shape() != b.shape() {
-            return false;
-        }
-        a.iter().zip(b.iter()).all(|(x, y)| (x - y).abs() <= tol)
+        a.shape() == b.shape()
+            && a.iter().zip(b.iter()).all(|(x, y)| (x - y).abs() <= tol)
     }
-
-    // Test helpers to reduce boilerplate
-    fn expect_dense(f: FactorKind) -> DenseFactor {
-        match f {
-            FactorKind::Dense(d) => d,
-            other => panic!("expected Dense factor, got {:?}", other),
-        }
-    }
-
-    // fn expect_unary(f: FactorKind) -> UnaryFactor {
-    //     match f {
-    //         FactorKind::Unary(u) => u,
-    //         other => panic!("expected Unary factor, got {:?}", other),
-    //     }
-    // }
 
     #[test]
     fn test_scope() {
@@ -211,26 +201,30 @@ mod tests {
 
     #[test]
     fn test_marginalize_single_var_logspace() {
-        // data in linear: [[1,2],[3,4]] -> log-space stored
         let data = array![[1.0_f64, 2.0], [3.0, 4.0]].mapv(|x| x.ln()).into_dyn();
         let f = DenseFactor::new(vec![0, 1], data);
 
-        // marginalize var 0: sums are [1+3, 2+4] = [4,6] -> log([4,6])
         let g = f.marginalize(&[0]);
         let expected = ln_array1(&[4.0, 6.0]);
 
-        let d = expect_dense(g);
-        assert_eq!(d.scope(), &[1]);
-        assert!(arrays_close(d.data(), &expected, 1e-12));
+        match g {
+            FactorKind::Dense(d) => {
+                assert_eq!(d.scope(), &[1]);
+                assert!(arrays_close(d.data(), &expected, 1e-12));
+            }
+            FactorKind::Unary(u) => {
+                assert_eq!(u.scope(), &[1]);
+                let expected_vec = expected.iter().cloned().collect::<Vec<_>>();
+                assert_eq!(u.data().len(), expected_vec.len());
+                for (a, b) in u.data().iter().zip(expected_vec.iter()) {
+                    assert!((a - b).abs() <= 1e-12);
+                }
+            }
+        }
     }
 
     #[test]
     fn test_marginalize_multiple_vars_logspace() {
-        // data in linear:
-        // [
-        //   [[1,2],[3,4]],
-        //   [[5,6],[7,8]]
-        // ]
         let data = array![
             [[1.0_f64, 2.0], [3.0, 4.0]],
             [[5.0, 6.0], [7.0, 8.0]]
@@ -240,14 +234,22 @@ mod tests {
 
         let f = DenseFactor::new(vec![0, 1, 2], data);
 
-        // marginalize 0 and 2 -> sums per kept axis 1:
-        // for axis1=0: 1+2+5+6 = 14
-        // for axis1=1: 3+4+7+8 = 22
         let g = f.marginalize(&[0, 2]);
         let expected = ln_array1(&[14.0, 22.0]);
 
-        let d = expect_dense(g);
-        assert_eq!(d.scope(), &[1]);
-        assert!(arrays_close(d.data(), &expected, 1e-12));
+        match g {
+            FactorKind::Dense(d) => {
+                assert_eq!(d.scope(), &[1]);
+                assert!(arrays_close(d.data(), &expected, 1e-12));
+            }
+            FactorKind::Unary(u) => {
+                assert_eq!(u.scope(), &[1]);
+                let expected_vec = expected.iter().cloned().collect::<Vec<_>>();
+                assert_eq!(u.data().len(), expected_vec.len());
+                for (a, b) in u.data().iter().zip(expected_vec.iter()) {
+                    assert!((a - b).abs() <= 1e-12);
+                }
+            }
+        }
     }
 }
