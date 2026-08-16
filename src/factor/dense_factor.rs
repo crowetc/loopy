@@ -179,6 +179,11 @@ mod tests {
         ArrayD::from_shape_vec(IxDyn(&[v.len()]), v.iter().map(|x| x.ln()).collect()).unwrap()
     }
 
+    fn arrays_approx_equal(a: &ArrayD<f64>, b: &ArrayD<f64>, tol: f64) -> bool {
+        a.shape() == b.shape()
+            && a.iter().zip(b.iter()).all(|(x, y)| (x - y).abs() <= tol)
+    }
+
     #[test]
     fn test_scope() {
         let f = DenseFactor::new(
@@ -190,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn test_marginalize_single_var_logspace() {
+    fn test_marginalize_single_in_scope() {
         let data = array![[1.0_f64, 2.0], [3.0, 4.0]]
             .mapv(|x| x.ln())
             .into_dyn();
@@ -211,6 +216,36 @@ mod tests {
                 for (a, b) in u.data().iter().zip(expected_vec.iter()) {
                     assert!((a - b).abs() <= 1e-12);
                 }
+            }
+            FactorKind::Scalar(s) => {
+                panic!("Unexpected scalar factor: {:?}", s);
+            }
+        }
+    }
+
+    #[test]
+    fn test_marginalize_single_out_of_scope() {
+        let data = array![[1.0_f64, 2.0], [3.0, 4.0]]
+            .mapv(|x| x.ln())
+            .into_dyn();
+
+        let f = DenseFactor::new(vec![0, 1], data);
+
+        let g = f.marginalize(&[2]);
+        let expected = array![[1.0_f64, 2.0], [3.0, 4.0]]
+            .mapv(|x| x.ln())
+            .into_dyn();
+
+        match g {
+            FactorKind::Dense(d) => {
+                assert_eq!(d.scope(), &[0, 1]);
+                assert!(
+                    arrays_approx_equal(d.data(), &expected, 1e-12),
+                    "Data changed when marginalizing an out-of-scope variable"
+                );
+            }
+            FactorKind::Unary(u) => {
+                panic!("Unexpected unary factor: {:?}", u);
             }
             FactorKind::Scalar(s) => {
                 panic!("Unexpected scalar factor: {:?}", s);
