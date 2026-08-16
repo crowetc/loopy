@@ -17,12 +17,13 @@ pub trait Factor {
     fn scope(&self) -> &[usize];
 
     /// The number of variables in the factor.
-    fn ndim(&self) -> usize {
-        return self.scope().len();
-    }
+    fn ndim(&self) -> usize { return self.scope().len(); }
 
     /// Consume self and marginalize the given variables.
     fn marginalize(self, vars: &[usize]) -> FactorKind;
+
+    /// Consume self and combine with other.
+    fn combine(self, other: FactorKind) -> FactorKind;
 }
 
 /// A factor over discrete variables with finite cardinalities.

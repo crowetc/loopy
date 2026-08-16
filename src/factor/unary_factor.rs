@@ -3,8 +3,9 @@
 //! A `UnaryFactor` stores:
 //! - `var`: the variable ID
 //! - `data`: log-potentials for each domain element
+use ndarray::{ArrayD, IxDyn};
 
-use super::{DiscreteFactor, Factor, FactorKind, ScalarFactor};
+use super::{DiscreteFactor, Factor, FactorKind, DenseFactor, ScalarFactor};
 use super::log_utils::lse_two_pass;
 
 /// A unary factor over a single variable (log-space).
@@ -77,6 +78,63 @@ impl Factor for UnaryFactor {
             FactorKind::Scalar(ScalarFactor::new(total))
         } else {
             FactorKind::Unary(self)
+        }
+    }
+
+    fn combine(self, other: FactorKind) -> FactorKind {
+        match other {
+            FactorKind::Unary(u2) => {
+                let v1 = self.scope()[0];
+                let v2 = u2.scope()[0];
+
+                // ------------------------------------------------------------
+                // Case A: same variable → unary result
+                // ------------------------------------------------------------
+                if v1 == v2 {
+                    let data = self.data.iter()
+                        .zip(u2.data().iter())
+                        .map(|(a, b)| a + b)
+                        .collect::<Vec<_>>();
+
+                    return FactorKind::Unary(UnaryFactor::new(v1, data));
+                }
+
+                // ------------------------------------------------------------
+                // Case B: different variables → 2-variable dense result
+                // ------------------------------------------------------------
+                let x_size = self.data.len();
+                let y_size = u2.data().len();
+
+                let new_scope = vec![v1, v2];
+                let out_shape = vec![x_size, y_size];
+
+                let mut out = ArrayD::<f64>::zeros(IxDyn(&out_shape));
+
+                let mut out_iter = out.iter_mut();
+
+                for x in 0..x_size {
+                    let u1_val = self.data[x];
+                    for y in 0..y_size {
+                        let u2_val = u2.data()[y];
+                        *out_iter.next().unwrap() = u1_val + u2_val;
+                    }
+                }
+
+                FactorKind::Dense(DenseFactor::new(new_scope, out))
+            }
+
+            FactorKind::Scalar(s) => {
+                let data = self.data.iter()
+                    .map(|x| x + s.value())
+                    .collect::<Vec<_>>();
+
+                FactorKind::Unary(UnaryFactor::new(self.scope()[0], data))
+            }
+
+            FactorKind::Dense(d) => {
+                // let DenseFactor handle it
+                d.combine(FactorKind::Unary(self))
+            }
         }
     }
 }

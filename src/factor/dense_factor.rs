@@ -157,6 +157,197 @@ impl Factor for DenseFactor {
             _ => FactorKind::Dense(reduced),
         }
     }
+
+    fn combine(self, other: FactorKind) -> FactorKind {
+        match other {
+            FactorKind::Dense(d2) => {
+                // -----------------------------
+                // 1. Partition scopes
+                // -----------------------------
+                let f_scope = &self.scope;
+                let g_scope = d2.scope();
+
+                let mut f_only = Vec::new();
+                let mut g_only = Vec::new();
+                let mut shared = Vec::new();
+
+                for &v in f_scope {
+                    if g_scope.contains(&v) {
+                        shared.push(v);
+                    } else {
+                        f_only.push(v);
+                    }
+                }
+                for &v in g_scope {
+                    if !shared.contains(&v) {
+                        g_only.push(v);
+                    }
+                }
+
+                // -----------------------------
+                // 2. Compute block sizes
+                // -----------------------------
+                let card_f = self.data.shape().to_vec();
+                let card_g = d2.data().shape().to_vec();
+
+                let f_only_size: usize = f_only.iter()
+                    .map(|v| card_f[f_scope.iter().position(|x| *x == *v).unwrap()])
+                    .product();
+
+                let shared_size: usize = shared.iter()
+                    .map(|v| card_f[f_scope.iter().position(|x| *x == *v).unwrap()])
+                    .product();
+
+                let g_only_size: usize = g_only.iter()
+                    .map(|v| card_g[g_scope.iter().position(|x| *x == *v).unwrap()])
+                    .product();
+
+                // -----------------------------
+                // 3. Output scope + shape
+                // -----------------------------
+                let mut new_scope = Vec::new();
+                new_scope.extend(&f_only);
+                new_scope.extend(&shared);
+                new_scope.extend(&g_only);
+
+                let mut out_shape = Vec::new();
+                for &v in &new_scope {
+                    if let Some(idx) = f_scope.iter().position(|x| *x == v) {
+                        out_shape.push(card_f[idx]);
+                    } else {
+                        let idx = g_scope.iter().position(|x| *x == v).unwrap();
+                        out_shape.push(card_g[idx]);
+                    }
+                }
+
+                let mut out = ArrayD::<f64>::zeros(IxDyn(&out_shape));
+
+                // -----------------------------
+                // 4. Triple-loop combine kernel
+                // -----------------------------
+                let mut f_iter = self.data.iter();
+                let mut out_iter = out.iter_mut();
+
+                for _ in 0..f_only_size {
+                    let mut g_iter = d2.data().iter();
+                    for _ in 0..shared_size {
+                        for _ in 0..g_only_size {
+                            let f_val = *f_iter.next().unwrap();
+                            let g_val = *g_iter.next().unwrap();
+                            *out_iter.next().unwrap() = f_val + g_val;
+                        }
+                    }
+                }
+
+                FactorKind::Dense(DenseFactor::new(new_scope, out))
+            }
+
+            FactorKind::Unary(u) => {
+                let f_scope = &self.scope;
+                let u_var = u.scope()[0];
+
+                // -----------------------------
+                // 1. Partition scopes
+                // -----------------------------
+                let mut f_only = Vec::new();
+                let mut shared = Vec::new();
+                let mut u_only = Vec::new();
+
+                for &v in f_scope {
+                    if v == u_var {
+                        shared.push(v);
+                    } else {
+                        f_only.push(v);
+                    }
+                }
+
+                if !shared.contains(&u_var) {
+                    u_only.push(u_var);
+                }
+
+                // -----------------------------
+                // 2. Compute block sizes
+                // -----------------------------
+                let card_f = self.data.shape().to_vec();
+                let card_u = u.data().len();
+
+                // f_only_size = product of cardinals of f_only
+                let f_only_size: usize = f_only.iter()
+                    .map(|v| card_f[f_scope.iter().position(|x| *x == *v).unwrap()])
+                    .product();
+
+                // shared_size = product of cardinals of shared
+                // unary has only one variable, so this is either card_u or 1
+                let shared_size: usize = if shared.is_empty() {
+                    1
+                } else {
+                    card_u
+                };
+
+                // u_only_size = product of cardinals of u_only
+                // unary has only one variable, so this is either card_u or 1
+                let u_only_size: usize = if u_only.is_empty() {
+                    1
+                } else {
+                    card_u
+                };
+
+                // -----------------------------
+                // 3. Output scope + shape
+                // -----------------------------
+                let mut new_scope = Vec::new();
+                new_scope.extend(&f_only);
+                new_scope.extend(&shared);
+                new_scope.extend(&u_only);
+
+                let mut out_shape = Vec::new();
+                for &v in &new_scope {
+                    if let Some(idx) = f_scope.iter().position(|x| *x == v) {
+                        out_shape.push(card_f[idx]);
+                    } else {
+                        out_shape.push(card_u);
+                    }
+                }
+
+                let mut out = ArrayD::<f64>::zeros(IxDyn(&out_shape));
+
+                // -----------------------------
+                // 4. Triple-loop combine kernel
+                // -----------------------------
+                let mut f_iter = self.data.iter();
+                let mut out_iter = out.iter_mut();
+
+                for _ in 0..f_only_size {
+                    for j in 0..shared_size {
+                        let u_val = if shared.is_empty() {
+                            // unary var not in dense scope
+                            0.0
+                        } else {
+                            u.data()[j]
+                        };
+
+                        for k in 0..u_only_size {
+                            let f_val = *f_iter.next().unwrap();
+                            let add_val = if u_only.is_empty() {
+                                u_val
+                            } else {
+                                u.data()[k]
+                            };
+
+                            *out_iter.next().unwrap() = f_val + add_val;
+                        }
+                    }
+                }
+
+                FactorKind::Dense(DenseFactor::new(new_scope, out))
+            }
+
+            FactorKind::Scalar(s) => {
+                let data = self.data.mapv(|x| x + s.value());
+                FactorKind::Dense(DenseFactor::new(self.scope.clone(), data))
+            }
+        }
+    }
 }
 
 /// Implement `DiscreteFactor` trait.

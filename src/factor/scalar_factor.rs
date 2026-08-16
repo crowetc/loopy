@@ -3,7 +3,7 @@
 //! A `ScalarFactor` stores:
 //! - `value`: a single log-potential
 
-use super::{Factor, FactorKind};
+use super::{Factor, FactorKind, DenseFactor, UnaryFactor};
 
 /// A scalar factor (log-space).
 ///
@@ -45,5 +45,23 @@ impl Factor for ScalarFactor {
     /// Marginalizing a scalar factor is a no-op.
     fn marginalize(self, _vars: &[usize]) -> FactorKind {
         FactorKind::Scalar(self)
+    }
+
+    fn combine(self, other: FactorKind) -> FactorKind {
+        match other {
+            FactorKind::Scalar(s2) => {
+                FactorKind::Scalar(ScalarFactor::new(self.value() + s2.value()))
+            }
+
+            FactorKind::Unary(u) => {
+                let data = u.data().iter().map(|x| x + self.value()).collect();
+                FactorKind::Unary(UnaryFactor::new(u.scope()[0], data))
+            }
+
+            FactorKind::Dense(d) => {
+                let data = d.data().mapv(|x| x + self.value());
+                FactorKind::Dense(DenseFactor::new(d.scope().to_vec(), data))
+            }
+        }
     }
 }
