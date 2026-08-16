@@ -7,7 +7,7 @@
 use std::f64;
 use ndarray::{ArrayD, IxDyn};
 
-use super::{DiscreteFactor, Factor, FactorKind};
+use super::{DiscreteFactor, Factor, FactorKind, ScalarFactor};
 use super::log_utils::{lse_finalize, lse_update};
 
 /// Dense table-based factor over discrete variables (log-space).
@@ -28,8 +28,6 @@ impl DenseFactor {
     }
 
     /// Construct a dense factor from **linear-space** values.
-    ///
-    /// Converts each value to log-space via `ln`..
     ///
     /// # Panics
     /// Panics if `scope.len() != linear.ndim()`.
@@ -86,7 +84,10 @@ impl DenseFactor {
             while j < vars_sorted.len() && vars_sorted[j] < v {
                 j += 1;
             }
-            if j < vars_sorted.len() && vars_sorted[j] == v {
+
+            let eliminate = j < vars_sorted.len() && vars_sorted[j] == v;
+
+            if eliminate {
                 idx_marg.push(i);
             } else {
                 idx_keep.push(i);
@@ -96,7 +97,7 @@ impl DenseFactor {
 
         // ---- Fast path: nothing to eliminate --------------------------------
         if idx_marg.is_empty() {
-            return DenseFactor::new(self.scope.clone(), self.data.clone());
+            return self.clone();
         }
 
         // ---- Permute axes ----------------------------------------------------
@@ -107,23 +108,12 @@ impl DenseFactor {
         let permuted = self.data.view().permuted_axes(order);
 
         // ---- Compute shapes --------------------------------------------------
-        let kept_shape: Vec<usize> = idx_keep.iter().map(|&i| self.data.shape()[i]).collect();
+        let shape = self.data.shape();
+        let kept_shape: Vec<usize> = idx_keep.iter().map(|&i| shape[i]).collect();
         let kept_size = if kept_shape.is_empty() { 1 } else { kept_shape.iter().product::<usize>() };
 
-        // ---- All axes eliminated -> scalar -----------------------------------
-        if kept_shape.is_empty() {
-            let mut cur_max = f64::NEG_INFINITY;
-            let mut cur_sum = 0.0;
-            for &x in permuted.iter() {
-                lse_update(x, &mut cur_max, &mut cur_sum);
-            }
-            let total = lse_finalize(cur_max, cur_sum);
-            let out = ArrayD::from_elem(IxDyn(&[]), total);
-            return DenseFactor::new(Vec::new(), out);
-        }
-
         // ---- Iterate contiguous blocks --------------------------------------
-        let elim_size = idx_marg.iter().map(|&i| self.data.shape()[i]).product::<usize>();
+        let elim_size = idx_marg.iter().map(|&i| shape[i]).product::<usize>();
 
         let mut out_vec = Vec::with_capacity(kept_size);
         let mut it = permuted.iter();
@@ -131,11 +121,12 @@ impl DenseFactor {
         for _ in 0..kept_size {
             let mut cur_max = f64::NEG_INFINITY;
             let mut cur_sum = 0.0;
+
             for _ in 0..elim_size {
-                // unwrap is safe because sizes are consistent
                 let &x = it.next().expect("iterator length must match kept_size * elim_size");
                 lse_update(x, &mut cur_max, &mut cur_sum);
             }
+
             out_vec.push(lse_finalize(cur_max, cur_sum));
         }
 
@@ -158,6 +149,10 @@ impl Factor for DenseFactor {
     fn marginalize(self, vars: &[usize]) -> FactorKind {
         let reduced = self.marginalize_kernel(vars);
         match reduced.scope.len() {
+            0 => {
+                let val = reduced.data().iter().copied().next().unwrap();
+                FactorKind::Scalar(ScalarFactor::new(val))
+            }
             1 => FactorKind::Unary(crate::factor::utils::dense_into_unary(reduced)),
             _ => FactorKind::Dense(reduced),
         }
@@ -184,11 +179,6 @@ mod tests {
         ArrayD::from_shape_vec(IxDyn(&[v.len()]), v.iter().map(|x| x.ln()).collect()).unwrap()
     }
 
-    fn arrays_close(a: &ArrayD<f64>, b: &ArrayD<f64>, tol: f64) -> bool {
-        a.shape() == b.shape()
-            && a.iter().zip(b.iter()).all(|(x, y)| (x - y).abs() <= tol)
-    }
-
     #[test]
     fn test_scope() {
         let f = DenseFactor::new(
@@ -201,7 +191,10 @@ mod tests {
 
     #[test]
     fn test_marginalize_single_var_logspace() {
-        let data = array![[1.0_f64, 2.0], [3.0, 4.0]].mapv(|x| x.ln()).into_dyn();
+        let data = array![[1.0_f64, 2.0], [3.0, 4.0]]
+            .mapv(|x| x.ln())
+            .into_dyn();
+
         let f = DenseFactor::new(vec![0, 1], data);
 
         let g = f.marginalize(&[0]);
@@ -209,8 +202,7 @@ mod tests {
 
         match g {
             FactorKind::Dense(d) => {
-                assert_eq!(d.scope(), &[1]);
-                assert!(arrays_close(d.data(), &expected, 1e-12));
+                panic!("Unexpected dense factor: {:?}", d);
             }
             FactorKind::Unary(u) => {
                 assert_eq!(u.scope(), &[1]);
@@ -219,6 +211,9 @@ mod tests {
                 for (a, b) in u.data().iter().zip(expected_vec.iter()) {
                     assert!((a - b).abs() <= 1e-12);
                 }
+            }
+            FactorKind::Scalar(s) => {
+                panic!("Unexpected scalar factor: {:?}", s);
             }
         }
     }
@@ -239,8 +234,7 @@ mod tests {
 
         match g {
             FactorKind::Dense(d) => {
-                assert_eq!(d.scope(), &[1]);
-                assert!(arrays_close(d.data(), &expected, 1e-12));
+                panic!("Unexpected dense factor: {:?}", d);
             }
             FactorKind::Unary(u) => {
                 assert_eq!(u.scope(), &[1]);
@@ -250,6 +244,28 @@ mod tests {
                     assert!((a - b).abs() <= 1e-12);
                 }
             }
+            FactorKind::Scalar(s) => {
+                panic!("Unexpected scalar factor: {:?}", s);
+            }
+        }
+    }
+
+    #[test]
+    fn test_marginalize_to_scalar() {
+        let data = array![1.0_f64, 2.0]
+            .mapv(|x| x.ln())
+            .into_dyn();
+
+        let f = DenseFactor::new(vec![0], data);
+
+        let g = f.marginalize(&[0]);
+
+        match g {
+            FactorKind::Scalar(s) => {
+                let expected = (1.0_f64 + 2.0_f64).ln();
+                assert!((s.value() - expected).abs() <= 1e-12);
+            }
+            _ => panic!("Expected scalar factor"),
         }
     }
 }

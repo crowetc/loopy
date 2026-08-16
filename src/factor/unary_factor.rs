@@ -4,7 +4,7 @@
 //! - `var`: the variable ID
 //! - `data`: log-potentials for each domain element
 
-use super::{DiscreteFactor, Factor, FactorKind};
+use super::{DiscreteFactor, Factor, FactorKind, ScalarFactor};
 use super::log_utils::lse_two_pass;
 
 /// A unary factor over a single variable (log-space).
@@ -74,7 +74,7 @@ impl Factor for UnaryFactor {
     fn marginalize(self, vars: &[usize]) -> FactorKind {
         if vars.contains(&self.var) {
             let total = lse_two_pass(self.data());
-            FactorKind::Unary(UnaryFactor::new(self.var, vec![total]))
+            FactorKind::Scalar(ScalarFactor::new(total))
         } else {
             FactorKind::Unary(self)
         }
