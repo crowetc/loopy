@@ -7,7 +7,9 @@
 use std::f64;
 use ndarray::{ArrayD, IxDyn};
 
-use super::{DiscreteFactor, Factor, FactorKind, ScalarFactor};
+use super::{
+    DiscreteFactor, Factor, FactorKind, ScalarFactor, UnaryFactor
+};
 use super::log_utils::{lse_finalize, lse_update};
 
 /// Dense table-based factor over discrete variables (log-space).
@@ -23,7 +25,12 @@ impl DenseFactor {
     /// # Panics
     /// Panics if `scope.len() != data.ndim()`.
     pub fn new(scope: Vec<usize>, data: ArrayD<f64>) -> Self {
-        assert_eq!(scope.len(), data.ndim());
+        assert_eq!(
+            scope.len(),
+            data.ndim(),
+            "scope length must match number of data dimensions"
+        );
+
         Self { scope, data }
     }
 
@@ -38,8 +45,8 @@ impl DenseFactor {
             "scope length must match number of data dimensions"
         );
 
-        // Map all values to log-space without altering shape.
         let data = linear.mapv(|x| x.ln());
+
         Self { scope, data }
     }
 
@@ -63,6 +70,10 @@ impl DenseFactor {
         self.scope
     }
 
+    //
+    // Marginalization
+    //
+
     /// Core marginalization kernel.
     ///
     /// This method:
@@ -71,7 +82,9 @@ impl DenseFactor {
     /// 3. Iterates contiguous blocks corresponding to marginalized axes.
     /// 4. Performs log-sum-exp reduction over each block.
     pub(crate) fn marginalize_kernel(&self, vars: &[usize]) -> DenseFactor {
-        // ---- Partition axes -------------------------------------------------
+        //
+        // Partition Axes
+        //
         let mut vars_sorted = vars.to_vec();
         vars_sorted.sort_unstable();
 
@@ -95,26 +108,33 @@ impl DenseFactor {
             }
         }
 
-        // ---- Fast path: nothing to eliminate --------------------------------
+        // Nothing to eliminate
         if idx_marg.is_empty() {
             return self.clone();
         }
 
-        // ---- Permute axes ----------------------------------------------------
-        let mut order = Vec::with_capacity(idx_keep.len() + idx_marg.len());
+        //
+        // Permute Axes
+        //
+        let mut order = Vec::with_capacity(self.scope.len());
         order.extend_from_slice(&idx_keep);
         order.extend_from_slice(&idx_marg);
 
         let permuted = self.data.view().permuted_axes(order);
 
-        // ---- Compute shapes --------------------------------------------------
+        //
+        // Block Sizes
+        //
         let shape = self.data.shape();
-        let kept_shape: Vec<usize> = idx_keep.iter().map(|&i| shape[i]).collect();
-        let kept_size = if kept_shape.is_empty() { 1 } else { kept_shape.iter().product::<usize>() };
+        let kept_shape: Vec<usize> =
+            idx_keep.iter().map(|&i| shape[i]).collect();
 
-        // ---- Iterate contiguous blocks --------------------------------------
+        let kept_size = if kept_shape.is_empty() { 1 } else { kept_shape.iter().product::<usize>() };
         let elim_size = idx_marg.iter().map(|&i| shape[i]).product::<usize>();
 
+        //
+        // Log-Sum-Exp Reduction
+        //
         let mut out_vec = Vec::with_capacity(kept_size);
         let mut it = permuted.iter();
 
@@ -123,7 +143,9 @@ impl DenseFactor {
             let mut cur_sum = 0.0;
 
             for _ in 0..elim_size {
-                let &x = it.next().expect("iterator length must match kept_size * elim_size");
+                let &x = it
+                    .next()
+                    .expect("iterator length must match expected size");
                 lse_update(x, &mut cur_max, &mut cur_sum);
             }
 
@@ -136,6 +158,303 @@ impl DenseFactor {
             .expect("shape and data length must match");
 
         DenseFactor::new(new_scope, out)
+    }
+
+    //
+    // Combination
+    //
+
+    /// Combine two dense factors in log-space.
+    ///
+    /// The resulting scope is the sorted union of both scopes.
+    ///
+    /// The views are arranged as:
+    ///
+    /// ```text
+    /// f1: [common, f1-only]
+    /// f2: [f2-only, common]
+    /// f3: [f2-only, common, f1-only]
+    /// ```
+    ///
+    /// This makes the Cartesian-product combination a simple nested
+    /// iteration over contiguous logical blocks.
+    fn combine_dense(&self, other: &DenseFactor) -> DenseFactor {
+        let alignment = build_alignment(&self.scope, &other.scope);
+
+        //
+        // Validate cardinalities for shared variables
+        //
+
+        for (&f1_axis, &f2_axis) in alignment
+            .f1_common
+            .iter()
+            .zip(alignment.f2_common.iter())
+        {
+            assert_eq!(
+                self.card()[f1_axis],
+                other.card()[f2_axis],
+                "Cardinality mismatch in factors"
+            );
+        }
+
+        //
+        // Axis Orders
+        //
+
+        // f1: [common, f1-only]
+        let mut f1_order = Vec::with_capacity(self.scope.len());
+        f1_order.extend_from_slice(&alignment.f1_common);
+        f1_order.extend_from_slice(&alignment.f1_only);
+
+        // f2: [f2-only, common]
+        let mut f2_order = Vec::with_capacity(other.scope.len());
+        f2_order.extend_from_slice(&alignment.f2_only);
+        f2_order.extend_from_slice(&alignment.f2_common);
+
+        // f3: [f2-only, common, f1-only]
+        let mut f3_order = Vec::with_capacity(alignment.union_vars.len());
+
+        f3_order.extend(
+            alignment
+                .f2_only
+                .iter()
+                .map(|&axis| alignment.f2_to_f3[axis]),
+        );
+
+        f3_order.extend(
+            alignment
+                .f1_common
+                .iter()
+                .map(|&axis| alignment.f1_to_f3[axis]),
+        );
+
+        f3_order.extend(
+            alignment
+                .f1_only
+                .iter()
+                .map(|&axis| alignment.f1_to_f3[axis]),
+        );
+
+        //
+        // Block Sizes
+        //
+
+        let common_size = product_or_one(
+            alignment
+                .f1_common
+                .iter()
+                .map(|&axis| self.card()[axis]),
+        );
+
+        let f1_only_size = product_or_one(
+            alignment
+                .f1_only
+                .iter()
+                .map(|&axis| self.card()[axis]),
+        );
+
+        let f2_only_size = product_or_one(
+            alignment
+                .f2_only
+                .iter()
+                .map(|&axis| other.card()[axis]),
+        );
+
+        //
+        // Output
+        //
+
+        let f3_card = alignment.output_card(self.card(), other.card());
+        let mut f3_data = ArrayD::<f64>::zeros(IxDyn(&f3_card));
+
+        let f1_view = self.data.view().permuted_axes(f1_order);
+        let f2_view = other.data.view().permuted_axes(f2_order);
+        let mut f3_view = f3_data.view_mut().permuted_axes(f3_order);
+
+        //
+        // Kernel
+        //
+
+        let mut it2 = f2_view.iter();
+        let mut it3 = f3_view.iter_mut();
+
+        for _ in 0..f2_only_size {
+
+            let mut it1 = f1_view.iter();
+
+            for _ in 0..common_size {
+                let b = *it2
+                    .next()
+                    .expect("f2 iterator length must match shape");
+
+                for _ in 0..f1_only_size {
+                    let a = *it1
+                        .next()
+                        .expect("f1 iterator length must match shape");
+
+                    *it3
+                        .next()
+                        .expect("f3 iterator length must match shape") = a + b;
+                }
+            }
+        }
+
+        debug_assert!(it2.next().is_none());
+        debug_assert!(it3.next().is_none());
+
+        DenseFactor::new(alignment.union_vars, f3_data)
+    }
+
+    /// Combine a dense factor with a unary factor.
+    ///
+    /// For a shared variable:
+    ///
+    /// ```text
+    /// dense:  [common, dense-only]
+    /// output: [common, dense-only]
+    /// ```
+    ///
+    /// For a disjoint variable:
+    ///
+    /// ```text
+    /// dense:  [dense-only...]
+    /// output: [unary-only, dense-only...]
+    /// ```
+    ///
+    /// The latter case is a straightforward Cartesian product.
+    fn combine_unary(&self, unary: &UnaryFactor) -> DenseFactor {
+        debug_assert_eq!(
+            unary.scope().len(),
+            1,
+            "UnaryFactor must have exactly one variable"
+        );
+
+        let alignment = build_alignment(&self.scope, unary.scope());
+
+        const UNARY_AXIS: usize = 0;
+
+        //
+        // Case 1: unary variable is shared with the dense factor.
+        //
+
+        if alignment.f2_common.len() == 1 {
+            let dense_common_axis = alignment.f1_common[0];
+
+            assert_eq!(
+                self.card()[dense_common_axis],
+                unary.card()[UNARY_AXIS],
+                "Cardinality mismatch in factors"
+            );
+
+            // Dense: [common, dense-only]
+            let mut f1_order = Vec::with_capacity(self.scope.len());
+            f1_order.extend_from_slice(&alignment.f1_common);
+            f1_order.extend_from_slice(&alignment.f1_only);
+
+            // Output: [common, dense-only]
+            let mut f3_order = Vec::with_capacity(alignment.union_vars.len());
+
+            f3_order.extend(
+                alignment
+                    .f1_common
+                    .iter()
+                    .map(|&axis| alignment.f1_to_f3[axis]),
+            );
+
+            f3_order.extend(
+                alignment
+                    .f1_only
+                    .iter()
+                    .map(|&axis| alignment.f1_to_f3[axis]),
+            );
+
+           let dense_view = self.data.view().permuted_axes(f1_order);
+
+            let f3_card = alignment.output_card(self.card(), unary.card());
+            let mut f3_data = ArrayD::<f64>::zeros(IxDyn(&f3_card));
+
+            let mut f3_view = f3_data.view_mut().permuted_axes(f3_order);
+
+            let dense_only_size = product_or_one(
+                alignment
+                    .f1_only
+                    .iter()
+                    .map(|&axis| self.card()[axis]),
+            );
+
+            let unary_data = unary.data();
+
+            let mut dense_iter = dense_view.iter();
+            let mut out_iter = f3_view.iter_mut();
+
+            for &u in unary_data.iter() {
+                for _ in 0..dense_only_size {
+                    let x = *dense_iter
+                        .next()
+                        .expect("dense iterator length must match shape");
+
+                    *out_iter
+                        .next()
+                        .expect("output iterator length must match shape") =
+                        x + u;
+                }
+            }
+
+            debug_assert!(dense_iter.next().is_none());
+            debug_assert!(out_iter.next().is_none());
+
+            return DenseFactor::new(alignment.union_vars, f3_data);
+        } else {
+
+            //
+            // Case 2: unary variable is disjoint from the dense factor.
+            //
+
+            debug_assert_eq!(alignment.f2_only.len(), 1);
+
+            // Dense: [dense-only...]
+            let mut f1_order = Vec::with_capacity(self.scope.len());
+            f1_order.extend_from_slice(&alignment.f1_only);
+
+            // Output: [unary-only, dense-only...]
+            let mut f3_order = Vec::with_capacity(alignment.union_vars.len());
+
+            f3_order.extend(
+                alignment
+                    .f2_only
+                    .iter()
+                    .map(|&axis| alignment.f2_to_f3[axis]),
+            );
+
+            f3_order.extend(
+                alignment
+                    .f1_only
+                    .iter()
+                    .map(|&axis| alignment.f1_to_f3[axis]),
+            );
+
+            let dense_view = self.data.view().permuted_axes(f1_order);
+
+            let f3_card = alignment.output_card(self.card(), unary.card());
+            let mut f3_data = ArrayD::<f64>::zeros(IxDyn(&f3_card));
+
+            let unary_data = unary.data();
+
+            let dense_iter = dense_view.iter();
+            let mut out_iter = f3_data.iter_mut();
+
+            for &u in unary_data.iter() {
+                for &x in dense_iter.clone() {
+                    *out_iter
+                        .next()
+                        .expect("output iterator length must match shape") = x + u;
+                }
+            }
+
+            debug_assert!(out_iter.next().is_none());
+
+            DenseFactor::new(alignment.union_vars, f3_data)
+        }
     }
 }
 
@@ -160,191 +479,33 @@ impl Factor for DenseFactor {
 
     fn combine(self, other: FactorKind) -> FactorKind {
         match other {
-            FactorKind::Dense(d2) => {
-                // -----------------------------
-                // 1. Partition scopes
-                // -----------------------------
-                let f_scope = &self.scope;
-                let g_scope = d2.scope();
-
-                let mut f_only = Vec::new();
-                let mut g_only = Vec::new();
-                let mut shared = Vec::new();
-
-                for &v in f_scope {
-                    if g_scope.contains(&v) {
-                        shared.push(v);
-                    } else {
-                        f_only.push(v);
-                    }
-                }
-                for &v in g_scope {
-                    if !shared.contains(&v) {
-                        g_only.push(v);
-                    }
+            FactorKind::Dense(other) => {
+                if self.data.is_empty() {
+                    return FactorKind::Dense(other);
                 }
 
-                // -----------------------------
-                // 2. Compute block sizes
-                // -----------------------------
-                let card_f = self.data.shape().to_vec();
-                let card_g = d2.data().shape().to_vec();
-
-                let f_only_size: usize = f_only.iter()
-                    .map(|v| card_f[f_scope.iter().position(|x| *x == *v).unwrap()])
-                    .product();
-
-                let shared_size: usize = shared.iter()
-                    .map(|v| card_f[f_scope.iter().position(|x| *x == *v).unwrap()])
-                    .product();
-
-                let g_only_size: usize = g_only.iter()
-                    .map(|v| card_g[g_scope.iter().position(|x| *x == *v).unwrap()])
-                    .product();
-
-                // -----------------------------
-                // 3. Output scope + shape
-                // -----------------------------
-                let mut new_scope = Vec::new();
-                new_scope.extend(&f_only);
-                new_scope.extend(&shared);
-                new_scope.extend(&g_only);
-
-                let mut out_shape = Vec::new();
-                for &v in &new_scope {
-                    if let Some(idx) = f_scope.iter().position(|x| *x == v) {
-                        out_shape.push(card_f[idx]);
-                    } else {
-                        let idx = g_scope.iter().position(|x| *x == v).unwrap();
-                        out_shape.push(card_g[idx]);
-                    }
+                if other.data.is_empty() {
+                    return FactorKind::Dense(self);
                 }
 
-                let mut out = ArrayD::<f64>::zeros(IxDyn(&out_shape));
-
-                // -----------------------------
-                // 4. Triple-loop combine kernel
-                // -----------------------------
-                let mut f_iter = self.data.iter();
-                let mut out_iter = out.iter_mut();
-
-                for _ in 0..f_only_size {
-                    let mut g_iter = d2.data().iter();
-                    for _ in 0..shared_size {
-                        for _ in 0..g_only_size {
-                            let f_val = *f_iter.next().unwrap();
-                            let g_val = *g_iter.next().unwrap();
-                            *out_iter.next().unwrap() = f_val + g_val;
-                        }
-                    }
-                }
-
-                FactorKind::Dense(DenseFactor::new(new_scope, out))
+                FactorKind::Dense(self.combine_dense(&other))
             }
 
-            FactorKind::Unary(u) => {
-                let f_scope = &self.scope;
-                let u_var = u.scope()[0];
-
-                // -----------------------------
-                // 1. Partition scopes
-                // -----------------------------
-                let mut f_only = Vec::new();
-                let mut shared = Vec::new();
-                let mut u_only = Vec::new();
-
-                for &v in f_scope {
-                    if v == u_var {
-                        shared.push(v);
-                    } else {
-                        f_only.push(v);
-                    }
+            FactorKind::Unary(unary) => {
+                if self.data.is_empty() {
+                    return FactorKind::Unary(unary);
                 }
 
-                if !shared.contains(&u_var) {
-                    u_only.push(u_var);
+                if unary.data().is_empty() {
+                    return FactorKind::Dense(self);
                 }
 
-                // -----------------------------
-                // 2. Compute block sizes
-                // -----------------------------
-                let card_f = self.data.shape().to_vec();
-                let card_u = u.data().len();
-
-                // f_only_size = product of cardinals of f_only
-                let f_only_size: usize = f_only.iter()
-                    .map(|v| card_f[f_scope.iter().position(|x| *x == *v).unwrap()])
-                    .product();
-
-                // shared_size = product of cardinals of shared
-                // unary has only one variable, so this is either card_u or 1
-                let shared_size: usize = if shared.is_empty() {
-                    1
-                } else {
-                    card_u
-                };
-
-                // u_only_size = product of cardinals of u_only
-                // unary has only one variable, so this is either card_u or 1
-                let u_only_size: usize = if u_only.is_empty() {
-                    1
-                } else {
-                    card_u
-                };
-
-                // -----------------------------
-                // 3. Output scope + shape
-                // -----------------------------
-                let mut new_scope = Vec::new();
-                new_scope.extend(&f_only);
-                new_scope.extend(&shared);
-                new_scope.extend(&u_only);
-
-                let mut out_shape = Vec::new();
-                for &v in &new_scope {
-                    if let Some(idx) = f_scope.iter().position(|x| *x == v) {
-                        out_shape.push(card_f[idx]);
-                    } else {
-                        out_shape.push(card_u);
-                    }
-                }
-
-                let mut out = ArrayD::<f64>::zeros(IxDyn(&out_shape));
-
-                // -----------------------------
-                // 4. Triple-loop combine kernel
-                // -----------------------------
-                let mut f_iter = self.data.iter();
-                let mut out_iter = out.iter_mut();
-
-                for _ in 0..f_only_size {
-                    for j in 0..shared_size {
-                        let u_val = if shared.is_empty() {
-                            // unary var not in dense scope
-                            0.0
-                        } else {
-                            u.data()[j]
-                        };
-
-                        for k in 0..u_only_size {
-                            let f_val = *f_iter.next().unwrap();
-                            let add_val = if u_only.is_empty() {
-                                u_val
-                            } else {
-                                u.data()[k]
-                            };
-
-                            *out_iter.next().unwrap() = f_val + add_val;
-                        }
-                    }
-                }
-
-                FactorKind::Dense(DenseFactor::new(new_scope, out))
+                FactorKind::Dense(self.combine_unary(&unary))
             }
 
             FactorKind::Scalar(s) => {
                 let data = self.data.mapv(|x| x + s.value());
-                FactorKind::Dense(DenseFactor::new(self.scope.clone(), data))
+                FactorKind::Dense(DenseFactor::new(self.scope, data))
             }
         }
     }
@@ -357,6 +518,189 @@ impl DiscreteFactor for DenseFactor {
     }
 }
 
+/// Information needed to align two factor scopes.
+///
+/// The output scope is always the sorted union of the two input scopes.
+///
+/// The `*_to_f3` mappings map an input axis to its corresponding output axis.
+struct Alignment {
+    /// The union of variables from f1 and f2, in aligned order
+    union_vars: Vec<usize>,
+
+    /// Indices of variables that appear only in f1
+    f1_only: Vec<usize>,
+
+    /// Indices of variables that appear only in f2
+    f2_only: Vec<usize>,
+
+    /// Indices of variables common to both f1 and f2
+    f1_common: Vec<usize>,
+    f2_common: Vec<usize>,
+
+    /// Mapping: f1 axis → f3 axis
+    f1_to_f3: Vec<usize>,
+
+    /// Mapping: f2 axis → f3 axis
+    f2_to_f3: Vec<usize>,
+}
+
+impl Alignment {
+    /// Construct the output cardinalities from the input cardinalities.
+    fn output_card(
+        &self,
+        f1_card: &[usize],
+        f2_card: &[usize],
+    ) -> Vec<usize> {
+        let mut card = vec![0usize; self.union_vars.len()];
+
+        for (axis, &out_axis) in self.f1_to_f3.iter().enumerate() {
+            if out_axis != usize::MAX {
+                card[out_axis] = f1_card[axis];
+            }
+        }
+
+        for (axis, &out_axis) in self.f2_to_f3.iter().enumerate() {
+            if out_axis != usize::MAX {
+                card[out_axis] = f2_card[axis];
+            }
+        }
+
+        card
+    }
+}
+
+/// Build the alignment between two factor scopes.
+fn build_alignment(
+    f1_scope: &[usize],
+    f2_scope: &[usize]
+) -> Alignment {
+    //
+    // Sort Scopes
+    //
+    let mut f1_sorted: Vec<(usize, usize)> = f1_scope
+        .iter()
+        .enumerate()
+        .map(|(axis, &var)| (var, axis))
+        .collect();
+
+    let mut f2_sorted: Vec<(usize, usize)> = f2_scope
+        .iter()
+        .enumerate()
+        .map(|(axis, &var)| (var, axis))
+        .collect();
+
+    f1_sorted.sort_unstable_by_key(|&(var, _)| var);
+    f2_sorted.sort_unstable_by_key(|&(var, _)| var);
+
+    let n1 = f1_sorted.len();
+    let n2 = f2_sorted.len();
+    let n_common = n1.min(n2);
+
+    let mut union_vars = Vec::with_capacity(n1 + n2);
+
+    let mut f1_only = Vec::with_capacity(n1);
+    let mut f2_only = Vec::with_capacity(n2);
+
+    let mut f1_common = Vec::with_capacity(n_common);
+    let mut f2_common = Vec::with_capacity(n_common);
+
+    let mut f1_to_f3 = vec![usize::MAX; n1];
+    let mut f2_to_f3 = vec![usize::MAX; n2];
+
+    let mut i = 0;
+    let mut j = 0;
+    let mut out_axis = 0;
+
+    //
+    // Merge walk
+    //
+    while i < n1 && j < n2 {
+        let (v1, axis1) = f1_sorted[i];
+        let (v2, axis2) = f2_sorted[j];
+
+        match v1.cmp(&v2) {
+            std::cmp::Ordering::Equal => {
+                f1_common.push(axis1);
+                f2_common.push(axis2);
+                union_vars.push(v1);
+
+                f1_to_f3[axis1] = out_axis;
+                f2_to_f3[axis2] = out_axis;
+
+                out_axis += 1;
+                i += 1;
+                j += 1;
+            }
+
+            std::cmp::Ordering::Less => {
+                f1_only.push(axis1);
+                union_vars.push(v1);
+
+                f1_to_f3[axis1] = out_axis;
+
+                out_axis += 1;
+                i += 1;
+            }
+
+            std::cmp::Ordering::Greater => {
+                f2_only.push(axis2);
+                union_vars.push(v2);
+
+                f2_to_f3[axis2] = out_axis;
+
+                out_axis += 1;
+                j += 1;
+            }
+        }
+    }
+
+    // remaining f1-only
+    while i < n1 {
+        let (var, axis) = f1_sorted[i];
+
+        f1_only.push(axis);
+        union_vars.push(var);
+        f1_to_f3[axis] = out_axis;
+
+        out_axis += 1;
+        i += 1;
+    }
+
+    // remaining f2-only
+    while j < n2 {
+        let (var, axis) = f2_sorted[j];
+
+        f2_only.push(axis);
+        union_vars.push(var);
+        f2_to_f3[axis] = out_axis;
+
+        out_axis += 1;
+        j += 1;
+    }
+
+    Alignment {
+        union_vars,
+        f1_only,
+        f2_only,
+        f1_common,
+        f2_common,
+        f1_to_f3,
+        f2_to_f3,
+    }
+}
+
+/// Product of dimensions, treating an empty product as one.
+///
+/// This is convenient for Cartesian-product kernels where an empty group of
+/// axes still represents one logical assignment.
+fn product_or_one<I>(values: I) -> usize
+where
+    I: IntoIterator<Item = usize>,
+{
+    values.into_iter().product::<usize>().max(1)
+}
+
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -364,22 +708,33 @@ impl DiscreteFactor for DenseFactor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::array;
+    use ndarray::{arr1, arr2, array};
 
     fn ln_array1(v: &[f64]) -> ArrayD<f64> {
-        ArrayD::from_shape_vec(IxDyn(&[v.len()]), v.iter().map(|x| x.ln()).collect()).unwrap()
+        ArrayD::from_shape_vec(
+            IxDyn(&[v.len()]),
+            v.iter().map(|x| x.ln()).collect()
+        )
+        .unwrap()
     }
 
-    fn arrays_approx_equal(a: &ArrayD<f64>, b: &ArrayD<f64>, tol: f64) -> bool {
+    fn arrays_approx_equal(
+        a: &ArrayD<f64>,
+        b: &ArrayD<f64>,
+        tol: f64
+    ) -> bool {
         a.shape() == b.shape()
-            && a.iter().zip(b.iter()).all(|(x, y)| (x - y).abs() <= tol)
+            && a.iter()
+                .zip(b.iter())
+                .all(|(x, y)| (x - y).abs() <= tol)
     }
 
     #[test]
     fn test_scope() {
         let f = DenseFactor::new(
             vec![0, 1],
-            array![[1.0_f64, 2.0], [3.0, 4.0]].mapv(|x| x.ln()).into_dyn(),
+            array![[1.0_f64, 2.0], [3.0, 4.0]]
+                .mapv(|x| x.ln()).into_dyn(),
         );
         assert_eq!(f.scope(), &[0, 1]);
         assert_eq!(f.data().ndim(), 2);
@@ -493,5 +848,195 @@ mod tests {
             }
             _ => panic!("Expected scalar factor"),
         }
+    }
+
+    #[test]
+    fn test_combine_dense_x_dense_intersect() {
+        let f = DenseFactor::new(
+            vec![0, 1],
+            arr2(&[
+                [1.0, 2.0],
+                [3.0, 4.0]
+            ])
+            .into_dyn()
+        );
+
+        let g = DenseFactor::new(
+            vec![1, 2],
+            arr2(&[
+                [10.0, 20.0],
+                [30.0, 40.0]
+            ])
+            .into_dyn()
+        );
+
+        let out = match f.combine(FactorKind::Dense(g)) {
+            FactorKind::Dense(d) => d,
+            _ => panic!("Expected dense")
+        };
+
+        // Expected shape: [0,1,2] -> [2,2,2]
+        let expected = array![
+            [[11.0, 21.0], [32.0, 42.0]],
+            [[13.0, 23.0], [34.0, 44.0]]
+        ]
+        .into_dyn();
+
+        assert_eq!(out.scope(), &[0, 1, 2]);
+        assert_eq!(out.data(), &expected);
+    }
+
+    #[test]
+    fn test_combine_dense_x_dense_disjoint() {
+        let f = DenseFactor::new(
+            vec![0],
+            arr1(&[1.0, 2.0]).into_dyn(),
+        );
+
+        let g = DenseFactor::new(
+            vec![1],
+            arr1(&[10.0, 20.0]).into_dyn(),
+        );
+
+        let out = match f.combine(FactorKind::Dense(g)) {
+            FactorKind::Dense(d) => d,
+            _ => panic!("Expected dense"),
+        };
+
+        let expected = array![
+            [11.0, 21.0],
+            [12.0, 22.0],
+        ]
+        .into_dyn();
+
+        assert_eq!(out.scope(), &[0, 1]);
+        assert_eq!(out.data(), &expected);
+    }
+
+    #[test]
+    fn test_combine_dense_x_unary_intersect() {
+        let f = DenseFactor::new(
+            vec![0, 1],
+            arr2(&[
+                [1.0, 2.0],
+                [3.0, 4.0]
+            ])
+            .into_dyn()
+        );
+
+        let u = UnaryFactor::new(1, vec![10.0, 20.0]);
+
+        let out = match f.combine(FactorKind::Unary(u)) {
+            FactorKind::Dense(d) => d,
+            _ => panic!("Expected dense")
+        };
+
+        let expected = arr2(&[
+            [11.0, 22.0],
+            [13.0, 24.0]
+        ])
+        .into_dyn();
+
+        assert_eq!(out.scope(), &[0, 1]);
+        assert_eq!(out.data(), &expected);
+    }
+
+    #[test]
+    fn test_combine_dense_x_unary_disjoint() {
+        let f = DenseFactor::new(
+            vec![0, 1],
+            arr2(&[
+                [1.0, 2.0],
+                [3.0, 4.0],
+            ])
+            .into_dyn(),
+        );
+
+        let u = UnaryFactor::new(2, vec![10.0, 20.0]);
+
+        let out = match f.combine(FactorKind::Unary(u)) {
+            FactorKind::Dense(d) => d,
+            _ => panic!("Expected dense"),
+        };
+
+        let expected = array![
+            [[11.0, 12.0], [13.0, 14.0]],
+            [[21.0, 22.0], [23.0, 24.0]],
+        ]
+        .into_dyn();
+
+        assert_eq!(out.scope(), &[0, 1, 2]);
+        assert_eq!(out.data(), &expected);
+    }
+
+    #[test]
+    fn test_combine_dense_x_dense_unsorted_scopes() {
+        // Scope [1, 0] means:
+        //   axis 0 -> variable 1
+        //   axis 1 -> variable 0
+        let f = DenseFactor::new(
+            vec![1, 0],
+            array![
+                [1.0, 2.0],
+                [3.0, 4.0],
+            ]
+            .into_dyn(),
+        );
+
+        let g = DenseFactor::new(
+            vec![2, 1],
+            array![
+                [10.0, 20.0],
+                [30.0, 40.0],
+            ]
+            .into_dyn(),
+        );
+
+        let out = match f.combine(FactorKind::Dense(g)) {
+            FactorKind::Dense(d) => d,
+            _ => panic!("Expected dense"),
+        };
+
+        assert_eq!(out.scope(), &[0, 1, 2]);
+
+        let expected = array![
+            [[11.0, 31.0], [23.0, 43.0]],
+            [[12.0, 32.0], [24.0, 44.0]],
+        ]
+        .into_dyn();
+
+        assert_eq!(out.data(), &expected);
+    }
+
+    #[test]
+    fn test_combine_dense_x_unary_unsorted_scope() {
+        // Dense scope [1, 0]:
+        //   axis 0 -> variable 1
+        //   axis 1 -> variable 0
+        let f = DenseFactor::new(
+            vec![1, 0],
+            array![
+                [1.0, 2.0],
+                [3.0, 4.0],
+            ]
+            .into_dyn(),
+        );
+
+        let u = UnaryFactor::new(1, vec![10.0, 20.0]);
+
+        let out = match f.combine(FactorKind::Unary(u)) {
+            FactorKind::Dense(d) => d,
+            _ => panic!("Expected dense"),
+        };
+
+        assert_eq!(out.scope(), &[0, 1]);
+
+        let expected = array![
+            [11.0, 23.0],
+            [12.0, 24.0],
+        ]
+        .into_dyn();
+
+        assert_eq!(out.data(), &expected);
     }
 }
