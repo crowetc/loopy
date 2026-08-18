@@ -480,26 +480,10 @@ impl Factor for DenseFactor {
     fn combine(self, other: FactorKind) -> FactorKind {
         match other {
             FactorKind::Dense(other) => {
-                if self.data.is_empty() {
-                    return FactorKind::Dense(other);
-                }
-
-                if other.data.is_empty() {
-                    return FactorKind::Dense(self);
-                }
-
                 FactorKind::Dense(self.combine_dense(&other))
             }
 
             FactorKind::Unary(unary) => {
-                if self.data.is_empty() {
-                    return FactorKind::Unary(unary);
-                }
-
-                if unary.data().is_empty() {
-                    return FactorKind::Dense(self);
-                }
-
                 FactorKind::Dense(self.combine_unary(&unary))
             }
 
