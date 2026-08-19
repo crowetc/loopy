@@ -22,6 +22,11 @@ codegen-units = 1
 debug = false
 
 [[bench]]
-name = "bench_factors"
-path = "benches/bench_factors.rs"
+name = "marginalize_bench"
+path = "benches/marginalize_bench.rs"
+harness = false
+
+[[bench]]
+name = "combine_bench"
+path = "benches/combine_bench.rs"
 harness = false

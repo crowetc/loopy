@@ -1,0 +1,102 @@
+use criterion::{criterion_group, criterion_main, Criterion};
+use loopy::factor::{DenseFactor, Factor, FactorKind, UnaryFactor};
+use ndarray::{ArrayD, IxDyn};
+use std::hint::black_box;
+
+fn consume_result(out: FactorKind) {
+    match out {
+        FactorKind::Dense(d) => black_box(d.data().len()),
+        FactorKind::Unary(u) => black_box(u.data().len()),
+        FactorKind::Scalar(s) => black_box(s.value() as usize),
+    };
+}
+
+fn make_dense(scope: Vec<usize>, shape: &[usize]) -> DenseFactor {
+    let size = shape.iter().product();
+
+    let data = vec![0.0_f64; size];
+
+    DenseFactor::new(
+        scope,
+        ArrayD::from_shape_vec(IxDyn(shape), data).unwrap(),
+    )
+}
+
+fn bench_dense_marginalize_single_axis(c: &mut Criterion) {
+    let f = make_dense(vec![0, 1, 2], &[20, 20, 20]);
+
+    c.bench_function("dense_marginalize_single_axis", |b| {
+        b.iter(|| {
+            let out = black_box(f.clone()).marginalize(black_box(&[0]));
+            consume_result(out);
+        })
+    });
+}
+
+fn bench_dense_marginalize_multiple_axes(c: &mut Criterion) {
+    let f = make_dense(vec![0, 1, 2], &[20, 20, 20]);
+
+    c.bench_function("dense_marginalize_multiple_axes", |b| {
+        b.iter(|| {
+            let out = black_box(f.clone()).marginalize(black_box(&[0, 2]));
+            consume_result(out);
+        })
+    });
+}
+
+fn bench_dense_marginalize_to_scalar(c: &mut Criterion) {
+    let f = make_dense(vec![0, 1, 2], &[20, 20, 20]);
+
+    c.bench_function("dense_marginalize_to_scalar", |b| {
+        b.iter(|| {
+            let out =
+                black_box(f.clone()).marginalize(black_box(&[0, 1, 2]));
+            consume_result(out);
+        })
+    });
+}
+
+fn bench_dense_marginalize_out_of_scope(c: &mut Criterion) {
+    let f = make_dense(vec![0, 1, 2], &[20, 20, 20]);
+
+    c.bench_function("dense_marginalize_out_of_scope", |b| {
+        b.iter(|| {
+            let out = black_box(f.clone()).marginalize(black_box(&[99]));
+            consume_result(out);
+        })
+    });
+}
+
+fn bench_unary_marginalize(c: &mut Criterion) {
+    let f = UnaryFactor::new(0, vec![0.0_f64; 100]);
+
+    c.bench_function("unary_marginalize", |b| {
+        b.iter(|| {
+            let out = black_box(f.clone()).marginalize(black_box(&[0]));
+            consume_result(out);
+        })
+    });
+}
+
+fn bench_unary_marginalize_out_of_scope(c: &mut Criterion) {
+    let f = UnaryFactor::new(0, vec![0.0_f64; 100]);
+
+    c.bench_function("unary_marginalize_out_of_scope", |b| {
+        b.iter(|| {
+            let out = black_box(f.clone()).marginalize(black_box(&[99]));
+            consume_result(out);
+        })
+    });
+}
+
+criterion_group!(
+    benches,
+    bench_dense_marginalize_single_axis,
+    bench_dense_marginalize_multiple_axes,
+    bench_dense_marginalize_to_scalar,
+    bench_dense_marginalize_out_of_scope,
+    bench_unary_marginalize,
+    bench_unary_marginalize_out_of_scope,
+);
+
+criterion_main!(benches);
