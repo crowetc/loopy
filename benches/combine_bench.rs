@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use loopy::factor::{DenseFactor, Factor, FactorKind, UnaryFactor};
 use ndarray::{ArrayD, IxDyn};
 use std::hint::black_box;
@@ -14,9 +14,7 @@ fn consume_result(out: FactorKind) {
 fn dense_factor(scope: Vec<usize>, shape: &[usize]) -> DenseFactor {
     let size = shape.iter().product();
 
-    let data = (0..size)
-        .map(|x| x as f64 + 1.0)
-        .collect::<Vec<f64>>();
+    let data = (0..size).map(|x| x as f64 + 1.0).collect::<Vec<f64>>();
 
     let data = ArrayD::from_shape_vec(IxDyn(shape), data).unwrap();
 
@@ -24,12 +22,7 @@ fn dense_factor(scope: Vec<usize>, shape: &[usize]) -> DenseFactor {
 }
 
 fn unary_factor(var: usize, size: usize) -> UnaryFactor {
-    UnaryFactor::new(
-        var,
-        (0..size)
-            .map(|x| x as f64 + 1.0)
-            .collect(),
-    )
+    UnaryFactor::new(var, (0..size).map(|x| x as f64 + 1.0).collect())
 }
 
 fn bench_dense_x_dense(c: &mut Criterion) {

@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use loopy::factor::{DenseFactor, Factor, FactorKind, UnaryFactor};
 use ndarray::{ArrayD, IxDyn};
 use std::hint::black_box;
@@ -16,10 +16,7 @@ fn make_dense(scope: Vec<usize>, shape: &[usize]) -> DenseFactor {
 
     let data = vec![0.0_f64; size];
 
-    DenseFactor::new(
-        scope,
-        ArrayD::from_shape_vec(IxDyn(shape), data).unwrap(),
-    )
+    DenseFactor::new(scope, ArrayD::from_shape_vec(IxDyn(shape), data).unwrap())
 }
 
 fn bench_dense_marginalize_single_axis(c: &mut Criterion) {
@@ -49,8 +46,7 @@ fn bench_dense_marginalize_to_scalar(c: &mut Criterion) {
 
     c.bench_function("dense_marginalize_to_scalar", |b| {
         b.iter(|| {
-            let out =
-                black_box(f.clone()).marginalize(black_box(&[0, 1, 2]));
+            let out = black_box(f.clone()).marginalize(black_box(&[0, 1, 2]));
             consume_result(out);
         })
     });
