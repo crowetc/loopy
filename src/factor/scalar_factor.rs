@@ -3,7 +3,7 @@
 //! A `ScalarFactor` stores:
 //! - `value`: a single log-potential
 
-use super::{Factor, FactorKind, DenseFactor, UnaryFactor};
+use super::{DenseFactor, Factor, FactorKind, UnaryFactor};
 
 /// A scalar factor (log-space).
 ///
@@ -39,7 +39,7 @@ impl ScalarFactor {
 impl Factor for ScalarFactor {
     /// A scalar factor has empty scope
     fn scope(&self) -> &[usize] {
-        &[]  // empty scope
+        &[] // empty scope
     }
 
     /// Marginalizing a scalar factor is a no-op.

@@ -1,4 +1,4 @@
-use super::{Factor, DenseFactor, ScalarFactor, UnaryFactor};
+use super::{DenseFactor, Factor, ScalarFactor, UnaryFactor};
 
 #[derive(Clone, Debug)]
 pub enum FactorKind {

@@ -1,9 +1,7 @@
-// benches/dense_marginalize.rs
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
+use loopy::factor::{DenseFactor, Factor, FactorKind, UnaryFactor};
+use ndarray::{ArrayD, IxDyn};
 use std::hint::black_box;
-use loopy::factor::{DenseFactor, UnaryFactor, Factor, FactorKind};
-use ndarray::IxDyn;
-use ndarray::ArrayD;
 
 fn bench_dense_marginalize(c: &mut Criterion) {
     // 1D dense factor with 100 elements (log-space)
@@ -44,9 +42,5 @@ fn bench_unary_marginalize(c: &mut Criterion) {
     });
 }
 
-criterion_group!(
-    benches,
-    bench_dense_marginalize,
-    bench_unary_marginalize
-);
+criterion_group!(benches, bench_dense_marginalize, bench_unary_marginalize);
 criterion_main!(benches);

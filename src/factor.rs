@@ -1,13 +1,13 @@
-pub mod factor_kind;
 pub mod dense_factor;
+pub mod factor_kind;
 pub mod scalar_factor;
 pub mod unary_factor;
 
 mod log_utils;
 mod utils;
 
-pub use factor_kind::FactorKind;
 pub use dense_factor::DenseFactor;
+pub use factor_kind::FactorKind;
 pub use scalar_factor::ScalarFactor;
 pub use unary_factor::UnaryFactor;
 
@@ -17,7 +17,9 @@ pub trait Factor {
     fn scope(&self) -> &[usize];
 
     /// The number of variables in the factor.
-    fn ndim(&self) -> usize { return self.scope().len(); }
+    fn ndim(&self) -> usize {
+        self.scope().len()
+    }
 
     /// Consume self and marginalize the given variables.
     fn marginalize(self, vars: &[usize]) -> FactorKind;
