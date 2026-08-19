@@ -21,8 +21,8 @@ pub trait Factor {
         self.scope().len()
     }
 
-    /// Consume self and marginalize the given variables.
-    fn marginalize(self, vars: &[usize]) -> FactorKind;
+    /// Consume self and reduce the given variables.
+    fn reduce(self, vars: &[usize]) -> FactorKind;
 
     /// Consume self and combine with other.
     fn combine(self, other: FactorKind) -> FactorKind;

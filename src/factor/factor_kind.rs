@@ -16,12 +16,12 @@ impl Factor for FactorKind {
         }
     }
 
-    // Consuming marginalize: takes ownership and returns a new FactorKind
-    fn marginalize(self, vars: &[usize]) -> FactorKind {
+    // Consuming reduce: takes ownership and returns a new FactorKind
+    fn reduce(self, vars: &[usize]) -> FactorKind {
         match self {
-            FactorKind::Dense(d) => d.marginalize(vars),
-            FactorKind::Unary(u) => u.marginalize(vars),
-            FactorKind::Scalar(s) => s.marginalize(vars),
+            FactorKind::Dense(d) => d.reduce(vars),
+            FactorKind::Unary(u) => u.reduce(vars),
+            FactorKind::Scalar(s) => s.reduce(vars),
         }
     }
 

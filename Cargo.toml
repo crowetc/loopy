@@ -22,8 +22,8 @@ codegen-units = 1
 debug = false
 
 [[bench]]
-name = "marginalize_bench"
-path = "benches/marginalize_bench.rs"
+name = "reduce_bench"
+path = "benches/reduce_bench.rs"
 harness = false
 
 [[bench]]

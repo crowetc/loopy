@@ -128,12 +128,12 @@ impl Factor for UnaryFactor {
         std::slice::from_ref(&self.var)
     }
 
-    /// Marginalize variables `vars`.
+    /// reduce variables `vars`.
     ///
     /// - If this unary variable is eliminated, return a unary factor with a
     ///   single log-sum-exp value.
     /// - Otherwise, return the factor unchanged.
-    fn marginalize(self, vars: &[usize]) -> FactorKind {
+    fn reduce(self, vars: &[usize]) -> FactorKind {
         if vars.contains(&self.var) {
             let total = lse_two_pass(self.data());
             FactorKind::Scalar(ScalarFactor::new(total))
@@ -212,14 +212,14 @@ mod tests {
     }
 
     //
-    // Marginalize Tests
+    // reduce Tests
     //
 
     #[test]
-    fn test_marginalize_in_scope() {
+    fn test_reduce_in_scope() {
         let f = UnaryFactor::new(0, ln_array(&[1.0, 2.0]));
 
-        let result = f.marginalize(&[0]);
+        let result = f.reduce(&[0]);
 
         match result {
             FactorKind::Scalar(s) => {
@@ -231,10 +231,10 @@ mod tests {
     }
 
     #[test]
-    fn test_marginalize_out_of_scope() {
+    fn test_reduce_out_of_scope() {
         let f = UnaryFactor::new(0, vec![1.0, 2.0]);
 
-        let result = f.marginalize(&[1]);
+        let result = f.reduce(&[1]);
 
         match result {
             FactorKind::Unary(u) => {

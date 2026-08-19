@@ -74,11 +74,11 @@ impl DenseFactor {
     /// Core marginalization kernel.
     ///
     /// This method:
-    /// 1. Partitions axes into kept vs. marginalized.
+    /// 1. Partitions axes into kept vs. reduced.
     /// 2. Permutes so kept axes come first.
-    /// 3. Iterates contiguous blocks corresponding to marginalized axes.
+    /// 3. Iterates contiguous blocks corresponding to reduced axes.
     /// 4. Performs log-sum-exp reduction over each block.
-    pub(crate) fn marginalize_kernel(&self, vars: &[usize]) -> DenseFactor {
+    pub(crate) fn reduce_kernel(&self, vars: &[usize]) -> DenseFactor {
         //
         // Partition Axes
         //
@@ -432,8 +432,8 @@ impl Factor for DenseFactor {
         &self.scope
     }
 
-    fn marginalize(self, vars: &[usize]) -> FactorKind {
-        let reduced = self.marginalize_kernel(vars);
+    fn reduce(self, vars: &[usize]) -> FactorKind {
+        let reduced = self.reduce_kernel(vars);
         match reduced.scope.len() {
             0 => {
                 let val = reduced.data().iter().copied().next().unwrap();
@@ -669,14 +669,14 @@ mod tests {
     }
 
     #[test]
-    fn test_marginalize_single_in_scope() {
+    fn test_reduce_single_in_scope() {
         let data = array![[1.0_f64, 2.0], [3.0, 4.0]]
             .mapv(|x| x.ln())
             .into_dyn();
 
         let f = DenseFactor::new(vec![0, 1], data);
 
-        let g = f.marginalize(&[0]);
+        let g = f.reduce(&[0]);
         let expected = ln_array1(&[4.0, 6.0]);
 
         match g {
@@ -698,14 +698,14 @@ mod tests {
     }
 
     #[test]
-    fn test_marginalize_single_out_of_scope() {
+    fn test_reduce_single_out_of_scope() {
         let data = array![[1.0_f64, 2.0], [3.0, 4.0]]
             .mapv(|x| x.ln())
             .into_dyn();
 
         let f = DenseFactor::new(vec![0, 1], data);
 
-        let g = f.marginalize(&[2]);
+        let g = f.reduce(&[2]);
         let expected = array![[1.0_f64, 2.0], [3.0, 4.0]]
             .mapv(|x| x.ln())
             .into_dyn();
@@ -728,14 +728,14 @@ mod tests {
     }
 
     #[test]
-    fn test_marginalize_multiple_vars_logspace() {
+    fn test_reduce_multiple_vars_logspace() {
         let data = array![[[1.0_f64, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]
             .mapv(|x| x.ln())
             .into_dyn();
 
         let f = DenseFactor::new(vec![0, 1, 2], data);
 
-        let g = f.marginalize(&[0, 2]);
+        let g = f.reduce(&[0, 2]);
         let expected = ln_array1(&[14.0, 22.0]);
 
         match g {
@@ -757,12 +757,12 @@ mod tests {
     }
 
     #[test]
-    fn test_marginalize_to_scalar() {
+    fn test_reduce_to_scalar() {
         let data = array![1.0_f64, 2.0].mapv(|x| x.ln()).into_dyn();
 
         let f = DenseFactor::new(vec![0], data);
 
-        let g = f.marginalize(&[0]);
+        let g = f.reduce(&[0]);
 
         match g {
             FactorKind::Scalar(s) => {

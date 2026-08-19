@@ -43,7 +43,7 @@ impl Factor for ScalarFactor {
     }
 
     /// Marginalizing a scalar factor is a no-op.
-    fn marginalize(self, _vars: &[usize]) -> FactorKind {
+    fn reduce(self, _vars: &[usize]) -> FactorKind {
         FactorKind::Scalar(self)
     }
 
