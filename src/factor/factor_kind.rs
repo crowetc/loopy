@@ -1,4 +1,5 @@
-use super::{DenseFactor, Factor, ScalarFactor, UnaryFactor};
+use super::Semiring;
+use super::{DenseFactor, Factor, FactorOps, ScalarFactor, UnaryFactor};
 
 #[derive(Clone, Debug)]
 pub enum FactorKind {
@@ -15,22 +16,31 @@ impl Factor for FactorKind {
             FactorKind::Unary(u) => u.scope(),
         }
     }
+}
 
-    // Consuming reduce: takes ownership and returns a new FactorKind
+impl<S: Semiring> FactorOps<S> for FactorKind
+where
+    DenseFactor: FactorOps<S>,
+    ScalarFactor: FactorOps<S>,
+    UnaryFactor: FactorOps<S>,
+{
     fn reduce(self, vars: &[usize]) -> FactorKind {
         match self {
-            FactorKind::Dense(d) => d.reduce(vars),
-            FactorKind::Unary(u) => u.reduce(vars),
-            FactorKind::Scalar(s) => s.reduce(vars),
+            FactorKind::Dense(d) => <DenseFactor as FactorOps<S>>::reduce(d, vars),
+
+            FactorKind::Scalar(s) => <ScalarFactor as FactorOps<S>>::reduce(s, vars),
+
+            FactorKind::Unary(u) => <UnaryFactor as FactorOps<S>>::reduce(u, vars),
         }
     }
 
-    // Consuming combine
     fn combine(self, other: FactorKind) -> FactorKind {
         match self {
-            FactorKind::Dense(d) => d.combine(other),
-            FactorKind::Unary(u) => u.combine(other),
-            FactorKind::Scalar(s) => s.combine(other),
+            FactorKind::Dense(d) => <DenseFactor as FactorOps<S>>::combine(d, other),
+
+            FactorKind::Scalar(s) => <ScalarFactor as FactorOps<S>>::combine(s, other),
+
+            FactorKind::Unary(u) => <UnaryFactor as FactorOps<S>>::combine(u, other),
         }
     }
 }

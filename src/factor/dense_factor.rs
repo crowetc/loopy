@@ -4,8 +4,9 @@
 //! - a `scope`: variable IDs
 //! - a dense `ndarray::ArrayD<f64>` data containing log-potentials
 
+use super::LogSumProduct;
 use super::log_utils::{lse_finalize, lse_update};
-use super::{DiscreteFactor, Factor, FactorKind, ScalarFactor, UnaryFactor};
+use super::{DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor, UnaryFactor};
 use ndarray::{ArrayD, IxDyn};
 use std::f64;
 
@@ -431,7 +432,9 @@ impl Factor for DenseFactor {
     fn scope(&self) -> &[usize] {
         &self.scope
     }
+}
 
+impl FactorOps<LogSumProduct> for DenseFactor {
     fn reduce(self, vars: &[usize]) -> FactorKind {
         let reduced = self.reduce_kernel(vars);
         match reduced.scope.len() {

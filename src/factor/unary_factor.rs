@@ -5,8 +5,9 @@
 //! - `data`: log-potentials for each domain element
 use ndarray::{ArrayD, IxDyn};
 
+use super::LogSumProduct;
 use super::log_utils::lse_two_pass;
-use super::{DenseFactor, DiscreteFactor, Factor, FactorKind, ScalarFactor};
+use super::{DenseFactor, DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor};
 
 /// A unary factor over a single discrete variable (log-space).
 ///
@@ -127,7 +128,9 @@ impl Factor for UnaryFactor {
     fn scope(&self) -> &[usize] {
         std::slice::from_ref(&self.var)
     }
+}
 
+impl FactorOps<LogSumProduct> for UnaryFactor {
     /// reduce variables `vars`.
     ///
     /// - If this unary variable is eliminated, return a unary factor with a

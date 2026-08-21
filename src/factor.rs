@@ -11,6 +11,8 @@ pub use factor_kind::FactorKind;
 pub use scalar_factor::ScalarFactor;
 pub use unary_factor::UnaryFactor;
 
+pub use crate::semiring::{LogMaxProduct, LogSumProduct, Semiring};
+
 /// A factor in the sense used in probabilistic graphical models.
 pub trait Factor {
     /// Variables in the factor's scope.
@@ -20,7 +22,9 @@ pub trait Factor {
     fn ndim(&self) -> usize {
         self.scope().len()
     }
+}
 
+pub trait FactorOps<S: Semiring>: Factor {
     /// Consume self and reduce the given variables.
     fn reduce(self, vars: &[usize]) -> FactorKind;
 

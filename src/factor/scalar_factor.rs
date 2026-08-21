@@ -3,7 +3,8 @@
 //! A `ScalarFactor` stores:
 //! - `value`: a single log-potential
 
-use super::{DenseFactor, Factor, FactorKind, UnaryFactor};
+use super::LogSumProduct;
+use super::{DenseFactor, Factor, FactorKind, FactorOps, UnaryFactor};
 
 /// A scalar factor (log-space).
 ///
@@ -41,7 +42,9 @@ impl Factor for ScalarFactor {
     fn scope(&self) -> &[usize] {
         &[] // empty scope
     }
+}
 
+impl FactorOps<LogSumProduct> for ScalarFactor {
     /// Marginalizing a scalar factor is a no-op.
     fn reduce(self, _vars: &[usize]) -> FactorKind {
         FactorKind::Scalar(self)
