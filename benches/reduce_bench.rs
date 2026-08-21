@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use loopy::factor::{DenseFactor, Factor, FactorKind, UnaryFactor};
+use loopy::factor::{DenseFactor, FactorKind, FactorOps, UnaryFactor};
 use ndarray::{ArrayD, IxDyn};
 use std::hint::black_box;
 
