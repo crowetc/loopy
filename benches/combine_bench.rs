@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use loopy::factor::{DenseFactor, FactorKind, FactorOps, UnaryFactor};
+use loopy::factor::{DenseFactor, FactorKind, FactorOps, UnaryFactor, VariableId};
 use ndarray::{ArrayD, IxDyn};
 use std::hint::black_box;
 
@@ -11,7 +11,7 @@ fn consume_result(out: FactorKind) {
     };
 }
 
-fn dense_factor(scope: Vec<usize>, shape: &[usize]) -> DenseFactor {
+fn dense_factor(scope: Vec<VariableId>, shape: &[usize]) -> DenseFactor {
     let size = shape.iter().product();
 
     let data = (0..size).map(|x| x as f64 + 1.0).collect::<Vec<f64>>();
@@ -21,7 +21,7 @@ fn dense_factor(scope: Vec<usize>, shape: &[usize]) -> DenseFactor {
     DenseFactor::new(scope, data)
 }
 
-fn unary_factor(var: usize, size: usize) -> UnaryFactor {
+fn unary_factor(var: VariableId, size: usize) -> UnaryFactor {
     UnaryFactor::new(var, (0..size).map(|x| x as f64 + 1.0).collect())
 }
 
@@ -31,8 +31,8 @@ fn bench_dense_x_dense(c: &mut Criterion) {
     // [0, 1] × [2, 3]
     //
     c.bench_function("combine_dense_x_dense_disjoint", |b| {
-        let f = dense_factor(vec![0, 1], &[20, 20]);
-        let g = dense_factor(vec![2, 3], &[20, 20]);
+        let f = dense_factor(vec![VariableId::new(0), VariableId::new(1)], &[20, 20]);
+        let g = dense_factor(vec![VariableId::new(2), VariableId::new(3)], &[20, 20]);
 
         b.iter(|| {
             let out = black_box(f.clone()).combine(FactorKind::Dense(g.clone()));
@@ -45,8 +45,8 @@ fn bench_dense_x_dense(c: &mut Criterion) {
     // [0, 1] × [1, 2]
     //
     c.bench_function("combine_dense_x_dense_intersect", |b| {
-        let f = dense_factor(vec![0, 1], &[20, 20]);
-        let g = dense_factor(vec![1, 2], &[20, 20]);
+        let f = dense_factor(vec![VariableId::new(0), VariableId::new(1)], &[20, 20]);
+        let g = dense_factor(vec![VariableId::new(1), VariableId::new(2)], &[20, 20]);
 
         b.iter(|| {
             let out = black_box(f.clone()).combine(FactorKind::Dense(g.clone()));
@@ -59,8 +59,8 @@ fn bench_dense_x_dense(c: &mut Criterion) {
     // [1, 0] × [2, 1]
     //
     c.bench_function("combine_dense_x_dense_unsorted", |b| {
-        let f = dense_factor(vec![1, 0], &[20, 20]);
-        let g = dense_factor(vec![2, 1], &[20, 20]);
+        let f = dense_factor(vec![VariableId::new(1), VariableId::new(0)], &[20, 20]);
+        let g = dense_factor(vec![VariableId::new(2), VariableId::new(1)], &[20, 20]);
 
         b.iter(|| {
             let out = black_box(f.clone()).combine(FactorKind::Dense(g.clone()));
@@ -75,8 +75,8 @@ fn bench_dense_x_unary(c: &mut Criterion) {
     // Dense [0, 1] × Unary [1]
     //
     c.bench_function("combine_dense_x_unary_intersect", |b| {
-        let f = dense_factor(vec![0, 1], &[100, 100]);
-        let u = unary_factor(1, 100);
+        let f = dense_factor(vec![VariableId::new(0), VariableId::new(1)], &[100, 100]);
+        let u = unary_factor(VariableId::new(1), 100);
 
         b.iter(|| {
             let out = black_box(f.clone()).combine(FactorKind::Unary(u.clone()));
@@ -89,8 +89,8 @@ fn bench_dense_x_unary(c: &mut Criterion) {
     // Dense [0, 1] × Unary [2]
     //
     c.bench_function("combine_dense_x_unary_disjoint", |b| {
-        let f = dense_factor(vec![0, 1], &[100, 100]);
-        let u = unary_factor(2, 100);
+        let f = dense_factor(vec![VariableId::new(0), VariableId::new(1)], &[100, 100]);
+        let u = unary_factor(VariableId::new(2), 100);
 
         b.iter(|| {
             let out = black_box(f.clone()).combine(FactorKind::Unary(u.clone()));
@@ -104,8 +104,8 @@ fn bench_unary_x_unary(c: &mut Criterion) {
     // Same variable → Unary result
     //
     c.bench_function("combine_unary_x_unary_intersect", |b| {
-        let f = unary_factor(0, 1000);
-        let g = unary_factor(0, 1000);
+        let f = unary_factor(VariableId::new(0), 1000);
+        let g = unary_factor(VariableId::new(0), 1000);
 
         b.iter(|| {
             let out = black_box(f.clone()).combine(FactorKind::Unary(g.clone()));
@@ -117,8 +117,8 @@ fn bench_unary_x_unary(c: &mut Criterion) {
     // Different variables -> Dense result
     //
     c.bench_function("combine_unary_x_unary_disjoint", |b| {
-        let f = unary_factor(0, 100);
-        let g = unary_factor(1, 100);
+        let f = unary_factor(VariableId::new(0), 100);
+        let g = unary_factor(VariableId::new(1), 100);
 
         b.iter(|| {
             let out = black_box(f.clone()).combine(FactorKind::Unary(g.clone()));

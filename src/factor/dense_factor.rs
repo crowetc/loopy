@@ -6,14 +6,14 @@
 
 use super::LogSumProduct;
 use super::log_utils::{lse_finalize, lse_update};
-use super::{DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor, UnaryFactor};
+use super::{DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor, UnaryFactor, VariableId};
 use ndarray::{ArrayD, IxDyn};
 use std::f64;
 
 /// Dense table-based factor over discrete variables (log-space).
 #[derive(Clone, Debug)]
 pub struct DenseFactor {
-    scope: Vec<usize>,
+    scope: Vec<VariableId>,
     data: ArrayD<f64>, // log-potentials
 }
 
@@ -22,7 +22,7 @@ impl DenseFactor {
     ///
     /// # Panics
     /// Panics if `scope.len() != data.ndim()`.
-    pub fn new(scope: Vec<usize>, data: ArrayD<f64>) -> Self {
+    pub fn new(scope: Vec<VariableId>, data: ArrayD<f64>) -> Self {
         assert_eq!(
             scope.len(),
             data.ndim(),
@@ -36,7 +36,7 @@ impl DenseFactor {
     ///
     /// # Panics
     /// Panics if `scope.len() != linear.ndim()`.
-    pub fn from_linear(scope: Vec<usize>, linear: ArrayD<f64>) -> Self {
+    pub fn from_linear(scope: Vec<VariableId>, linear: ArrayD<f64>) -> Self {
         assert_eq!(
             scope.len(),
             linear.ndim(),
@@ -54,7 +54,7 @@ impl DenseFactor {
     }
 
     /// Consume the factor and return `(scope, data)`.
-    pub fn into_parts(self) -> (Vec<usize>, ArrayD<f64>) {
+    pub fn into_parts(self) -> (Vec<VariableId>, ArrayD<f64>) {
         (self.scope, self.data)
     }
 
@@ -64,7 +64,7 @@ impl DenseFactor {
     }
 
     /// Consume and return the owned scope vector.
-    pub fn into_scope(self) -> Vec<usize> {
+    pub fn into_scope(self) -> Vec<VariableId> {
         self.scope
     }
 
@@ -79,7 +79,7 @@ impl DenseFactor {
     /// 2. Permutes so kept axes come first.
     /// 3. Iterates contiguous blocks corresponding to reduced axes.
     /// 4. Performs log-sum-exp reduction over each block.
-    pub(crate) fn reduce_kernel(&self, vars: &[usize]) -> DenseFactor {
+    pub(crate) fn reduce_kernel(&self, vars: &[VariableId]) -> DenseFactor {
         //
         // Partition Axes
         //
@@ -429,13 +429,13 @@ impl DenseFactor {
 
 /// Implement `Factor` trait
 impl Factor for DenseFactor {
-    fn scope(&self) -> &[usize] {
+    fn scope(&self) -> &[VariableId] {
         &self.scope
     }
 }
 
 impl FactorOps<LogSumProduct> for DenseFactor {
-    fn reduce(self, vars: &[usize]) -> FactorKind {
+    fn reduce(self, vars: &[VariableId]) -> FactorKind {
         let reduced = self.reduce_kernel(vars);
         match reduced.scope.len() {
             0 => {
@@ -474,7 +474,7 @@ impl DiscreteFactor for DenseFactor {
 /// The `*_to_f3` mappings map an input axis to its corresponding output axis.
 struct Alignment {
     /// The union of variables from f1 and f2, in aligned order
-    union_vars: Vec<usize>,
+    union_vars: Vec<VariableId>,
 
     /// Indices of variables that appear only in f1
     f1_only: Vec<usize>,
@@ -515,17 +515,17 @@ impl Alignment {
 }
 
 /// Build the alignment between two factor scopes.
-fn build_alignment(f1_scope: &[usize], f2_scope: &[usize]) -> Alignment {
+fn build_alignment(f1_scope: &[VariableId], f2_scope: &[VariableId]) -> Alignment {
     //
     // Sort Scopes
     //
-    let mut f1_sorted: Vec<(usize, usize)> = f1_scope
+    let mut f1_sorted: Vec<(VariableId, usize)> = f1_scope
         .iter()
         .enumerate()
         .map(|(axis, &var)| (var, axis))
         .collect();
 
-    let mut f2_sorted: Vec<(usize, usize)> = f2_scope
+    let mut f2_sorted: Vec<(VariableId, usize)> = f2_scope
         .iter()
         .enumerate()
         .map(|(axis, &var)| (var, axis))
@@ -651,6 +651,10 @@ mod tests {
     use super::*;
     use ndarray::{arr1, arr2, array};
 
+    fn v(id: usize) -> VariableId {
+        VariableId::new(id)
+    }
+
     fn ln_array1(v: &[f64]) -> ArrayD<f64> {
         ArrayD::from_shape_vec(IxDyn(&[v.len()]), v.iter().map(|x| x.ln()).collect()).unwrap()
     }
@@ -662,12 +666,12 @@ mod tests {
     #[test]
     fn test_scope() {
         let f = DenseFactor::new(
-            vec![0, 1],
+            vec![v(0), v(1)],
             array![[1.0_f64, 2.0], [3.0, 4.0]]
                 .mapv(|x| x.ln())
                 .into_dyn(),
         );
-        assert_eq!(f.scope(), &[0, 1]);
+        assert_eq!(f.scope(), &[v(0), v(1)]);
         assert_eq!(f.data().ndim(), 2);
     }
 
@@ -677,9 +681,9 @@ mod tests {
             .mapv(|x| x.ln())
             .into_dyn();
 
-        let f = DenseFactor::new(vec![0, 1], data);
+        let f = DenseFactor::new(vec![v(0), v(1)], data);
 
-        let g = f.reduce(&[0]);
+        let g = f.reduce(&[v(0)]);
         let expected = ln_array1(&[4.0, 6.0]);
 
         match g {
@@ -687,7 +691,7 @@ mod tests {
                 panic!("Unexpected dense factor: {:?}", d);
             }
             FactorKind::Unary(u) => {
-                assert_eq!(u.scope(), &[1]);
+                assert_eq!(u.scope(), &[v(1)]);
                 let expected_vec = expected.iter().cloned().collect::<Vec<_>>();
                 assert_eq!(u.data().len(), expected_vec.len());
                 for (a, b) in u.data().iter().zip(expected_vec.iter()) {
@@ -706,16 +710,16 @@ mod tests {
             .mapv(|x| x.ln())
             .into_dyn();
 
-        let f = DenseFactor::new(vec![0, 1], data);
+        let f = DenseFactor::new(vec![v(0), v(1)], data);
 
-        let g = f.reduce(&[2]);
+        let g = f.reduce(&[v(2)]);
         let expected = array![[1.0_f64, 2.0], [3.0, 4.0]]
             .mapv(|x| x.ln())
             .into_dyn();
 
         match g {
             FactorKind::Dense(d) => {
-                assert_eq!(d.scope(), &[0, 1]);
+                assert_eq!(d.scope(), &[v(0), v(1)]);
                 assert!(
                     arrays_approx_equal(d.data(), &expected, 1e-12),
                     "Data changed when marginalizing an out-of-scope variable"
@@ -736,9 +740,9 @@ mod tests {
             .mapv(|x| x.ln())
             .into_dyn();
 
-        let f = DenseFactor::new(vec![0, 1, 2], data);
+        let f = DenseFactor::new(vec![v(0), v(1), v(2)], data);
 
-        let g = f.reduce(&[0, 2]);
+        let g = f.reduce(&[v(0), v(2)]);
         let expected = ln_array1(&[14.0, 22.0]);
 
         match g {
@@ -746,7 +750,7 @@ mod tests {
                 panic!("Unexpected dense factor: {:?}", d);
             }
             FactorKind::Unary(u) => {
-                assert_eq!(u.scope(), &[1]);
+                assert_eq!(u.scope(), &[v(1)]);
                 let expected_vec = expected.iter().cloned().collect::<Vec<_>>();
                 assert_eq!(u.data().len(), expected_vec.len());
                 for (a, b) in u.data().iter().zip(expected_vec.iter()) {
@@ -763,9 +767,9 @@ mod tests {
     fn test_reduce_to_scalar() {
         let data = array![1.0_f64, 2.0].mapv(|x| x.ln()).into_dyn();
 
-        let f = DenseFactor::new(vec![0], data);
+        let f = DenseFactor::new(vec![v(0)], data);
 
-        let g = f.reduce(&[0]);
+        let g = f.reduce(&[v(0)]);
 
         match g {
             FactorKind::Scalar(s) => {
@@ -778,9 +782,12 @@ mod tests {
 
     #[test]
     fn test_combine_dense_x_dense_intersect() {
-        let f = DenseFactor::new(vec![0, 1], arr2(&[[1.0, 2.0], [3.0, 4.0]]).into_dyn());
+        let f = DenseFactor::new(vec![v(0), v(1)], arr2(&[[1.0, 2.0], [3.0, 4.0]]).into_dyn());
 
-        let g = DenseFactor::new(vec![1, 2], arr2(&[[10.0, 20.0], [30.0, 40.0]]).into_dyn());
+        let g = DenseFactor::new(
+            vec![v(1), v(2)],
+            arr2(&[[10.0, 20.0], [30.0, 40.0]]).into_dyn(),
+        );
 
         let out = match f.combine(FactorKind::Dense(g)) {
             FactorKind::Dense(d) => d,
@@ -791,15 +798,15 @@ mod tests {
         let expected =
             array![[[11.0, 21.0], [32.0, 42.0]], [[13.0, 23.0], [34.0, 44.0]]].into_dyn();
 
-        assert_eq!(out.scope(), &[0, 1, 2]);
+        assert_eq!(out.scope(), &[v(0), v(1), v(2)]);
         assert_eq!(out.data(), &expected);
     }
 
     #[test]
     fn test_combine_dense_x_dense_disjoint() {
-        let f = DenseFactor::new(vec![0], arr1(&[1.0, 2.0]).into_dyn());
+        let f = DenseFactor::new(vec![v(0)], arr1(&[1.0, 2.0]).into_dyn());
 
-        let g = DenseFactor::new(vec![1], arr1(&[10.0, 20.0]).into_dyn());
+        let g = DenseFactor::new(vec![v(1)], arr1(&[10.0, 20.0]).into_dyn());
 
         let out = match f.combine(FactorKind::Dense(g)) {
             FactorKind::Dense(d) => d,
@@ -808,15 +815,15 @@ mod tests {
 
         let expected = array![[11.0, 21.0], [12.0, 22.0]].into_dyn();
 
-        assert_eq!(out.scope(), &[0, 1]);
+        assert_eq!(out.scope(), &[v(0), v(1)]);
         assert_eq!(out.data(), &expected);
     }
 
     #[test]
     fn test_combine_dense_x_unary_intersect() {
-        let f = DenseFactor::new(vec![0, 1], arr2(&[[1.0, 2.0], [3.0, 4.0]]).into_dyn());
+        let f = DenseFactor::new(vec![v(0), v(1)], arr2(&[[1.0, 2.0], [3.0, 4.0]]).into_dyn());
 
-        let u = UnaryFactor::new(1, vec![10.0, 20.0]);
+        let u = UnaryFactor::new(v(1), vec![10.0, 20.0]);
 
         let out = match f.combine(FactorKind::Unary(u)) {
             FactorKind::Dense(d) => d,
@@ -825,15 +832,15 @@ mod tests {
 
         let expected = arr2(&[[11.0, 22.0], [13.0, 24.0]]).into_dyn();
 
-        assert_eq!(out.scope(), &[0, 1]);
+        assert_eq!(out.scope(), &[v(0), v(1)]);
         assert_eq!(out.data(), &expected);
     }
 
     #[test]
     fn test_combine_dense_x_unary_disjoint() {
-        let f = DenseFactor::new(vec![0, 1], arr2(&[[1.0, 2.0], [3.0, 4.0]]).into_dyn());
+        let f = DenseFactor::new(vec![v(0), v(1)], arr2(&[[1.0, 2.0], [3.0, 4.0]]).into_dyn());
 
-        let u = UnaryFactor::new(2, vec![10.0, 20.0]);
+        let u = UnaryFactor::new(v(2), vec![10.0, 20.0]);
 
         let out = match f.combine(FactorKind::Unary(u)) {
             FactorKind::Dense(d) => d,
@@ -843,7 +850,7 @@ mod tests {
         let expected =
             array![[[11.0, 12.0], [13.0, 14.0]], [[21.0, 22.0], [23.0, 24.0]],].into_dyn();
 
-        assert_eq!(out.scope(), &[0, 1, 2]);
+        assert_eq!(out.scope(), &[v(0), v(1), v(2)]);
         assert_eq!(out.data(), &expected);
     }
 
@@ -852,16 +859,19 @@ mod tests {
         // Scope [1, 0] means:
         //   axis 0 -> variable 1
         //   axis 1 -> variable 0
-        let f = DenseFactor::new(vec![1, 0], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
+        let f = DenseFactor::new(vec![v(1), v(0)], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
 
-        let g = DenseFactor::new(vec![2, 1], array![[10.0, 20.0], [30.0, 40.0],].into_dyn());
+        let g = DenseFactor::new(
+            vec![v(2), v(1)],
+            array![[10.0, 20.0], [30.0, 40.0],].into_dyn(),
+        );
 
         let out = match f.combine(FactorKind::Dense(g)) {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
         };
 
-        assert_eq!(out.scope(), &[0, 1, 2]);
+        assert_eq!(out.scope(), &[v(0), v(1), v(2)]);
 
         let expected =
             array![[[11.0, 31.0], [23.0, 43.0]], [[12.0, 32.0], [24.0, 44.0]],].into_dyn();
@@ -874,16 +884,16 @@ mod tests {
         // Dense scope [1, 0]:
         //   axis 0 -> variable 1
         //   axis 1 -> variable 0
-        let f = DenseFactor::new(vec![1, 0], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
+        let f = DenseFactor::new(vec![v(1), v(0)], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
 
-        let u = UnaryFactor::new(1, vec![10.0, 20.0]);
+        let u = UnaryFactor::new(v(1), vec![10.0, 20.0]);
 
         let out = match f.combine(FactorKind::Unary(u)) {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
         };
 
-        assert_eq!(out.scope(), &[0, 1]);
+        assert_eq!(out.scope(), &[v(0), v(1)]);
 
         let expected = array![[11.0, 23.0], [12.0, 24.0],].into_dyn();
 

@@ -7,14 +7,14 @@ use ndarray::{ArrayD, IxDyn};
 
 use super::LogSumProduct;
 use super::log_utils::lse_two_pass;
-use super::{DenseFactor, DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor};
+use super::{DenseFactor, DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor, VariableId};
 
 /// A unary factor over a single discrete variable (log-space).
 ///
 /// The underlying values are stored in log-space.
 #[derive(Clone, Debug)]
 pub struct UnaryFactor {
-    var: usize,
+    var: VariableId,
     data: Vec<f64>,
     card: [usize; 1],
 }
@@ -24,7 +24,7 @@ impl UnaryFactor {
     ///
     /// # Panics
     /// Panics if `data` is empty.
-    pub fn new(var: usize, data: Vec<f64>) -> Self {
+    pub fn new(var: VariableId, data: Vec<f64>) -> Self {
         assert!(!data.is_empty());
         let card = [data.len()];
         Self { var, data, card }
@@ -34,7 +34,7 @@ impl UnaryFactor {
     ///
     /// # Panics
     /// Panics if `linear` is empty.
-    pub fn from_linear(var: usize, linear: Vec<f64>) -> Self {
+    pub fn from_linear(var: VariableId, linear: Vec<f64>) -> Self {
         assert!(!linear.is_empty());
         let data: Vec<f64> = linear.into_iter().map(|x| x.ln()).collect();
         let card = [data.len()];
@@ -47,7 +47,7 @@ impl UnaryFactor {
     }
 
     /// Return the variable ID.
-    pub fn var(&self) -> usize {
+    pub fn var(&self) -> VariableId {
         self.var
     }
 
@@ -125,7 +125,7 @@ impl UnaryFactor {
 
 /// Implement `Factor` trait
 impl Factor for UnaryFactor {
-    fn scope(&self) -> &[usize] {
+    fn scope(&self) -> &[VariableId] {
         std::slice::from_ref(&self.var)
     }
 }
@@ -136,7 +136,7 @@ impl FactorOps<LogSumProduct> for UnaryFactor {
     /// - If this unary variable is eliminated, return a unary factor with a
     ///   single log-sum-exp value.
     /// - Otherwise, return the factor unchanged.
-    fn reduce(self, vars: &[usize]) -> FactorKind {
+    fn reduce(self, vars: &[VariableId]) -> FactorKind {
         if vars.contains(&self.var) {
             let total = lse_two_pass(self.data());
             FactorKind::Scalar(ScalarFactor::new(total))
@@ -174,6 +174,10 @@ mod tests {
     use super::*;
     use ndarray::array;
 
+    fn v(id: usize) -> VariableId {
+        VariableId::new(id)
+    }
+
     fn ln_array(v: &[f64]) -> Vec<f64> {
         v.iter().map(|x| x.ln()).collect()
     }
@@ -184,22 +188,22 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let f = UnaryFactor::new(3, vec![1.0, 2.0, 3.0]);
+        let f = UnaryFactor::new(v(3), vec![1.0, 2.0, 3.0]);
 
-        assert_eq!(f.var(), 3);
-        assert_eq!(f.scope(), &[3]);
+        assert_eq!(f.var(), v(3));
+        assert_eq!(f.scope(), &[v(3)]);
         assert_eq!(f.card(), &[3]);
         assert_eq!(f.data(), &[1.0, 2.0, 3.0]);
     }
 
     #[test]
     fn test_from_linear() {
-        let f = UnaryFactor::from_linear(2, vec![1.0, 10.0, 100.0]);
+        let f = UnaryFactor::from_linear(v(2), vec![1.0, 10.0, 100.0]);
 
         let expected = ln_array(&[1.0, 10.0, 100.0]);
 
-        assert_eq!(f.var(), 2);
-        assert_eq!(f.scope(), &[2]);
+        assert_eq!(f.var(), v(2));
+        assert_eq!(f.scope(), &[v(2)]);
         assert_eq!(f.card(), &[3]);
 
         for (actual, expected) in f.data().iter().zip(expected.iter()) {
@@ -209,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_into_data() {
-        let f = UnaryFactor::new(7, vec![1.0, 2.0, 3.0]);
+        let f = UnaryFactor::new(v(7), vec![1.0, 2.0, 3.0]);
 
         assert_eq!(f.into_data(), vec![1.0, 2.0, 3.0]);
     }
@@ -220,9 +224,9 @@ mod tests {
 
     #[test]
     fn test_reduce_in_scope() {
-        let f = UnaryFactor::new(0, ln_array(&[1.0, 2.0]));
+        let f = UnaryFactor::new(v(0), ln_array(&[1.0, 2.0]));
 
-        let result = f.reduce(&[0]);
+        let result = f.reduce(&[v(0)]);
 
         match result {
             FactorKind::Scalar(s) => {
@@ -235,13 +239,13 @@ mod tests {
 
     #[test]
     fn test_reduce_out_of_scope() {
-        let f = UnaryFactor::new(0, vec![1.0, 2.0]);
+        let f = UnaryFactor::new(v(0), vec![1.0, 2.0]);
 
-        let result = f.reduce(&[1]);
+        let result = f.reduce(&[v(1)]);
 
         match result {
             FactorKind::Unary(u) => {
-                assert_eq!(u.scope(), &[0]);
+                assert_eq!(u.scope(), &[v(0)]);
                 assert_eq!(u.data(), &[1.0, 2.0]);
             }
             _ => panic!("Expected unary factor"),
@@ -254,14 +258,14 @@ mod tests {
 
     #[test]
     fn test_combine_unary_x_unary_intersect() {
-        let f = UnaryFactor::new(0, vec![1.0, 2.0]);
-        let g = UnaryFactor::new(0, vec![10.0, 20.0]);
+        let f = UnaryFactor::new(v(0), vec![1.0, 2.0]);
+        let g = UnaryFactor::new(v(0), vec![10.0, 20.0]);
 
         let result = f.combine(FactorKind::Unary(g));
 
         match result {
             FactorKind::Unary(u) => {
-                assert_eq!(u.scope(), &[0]);
+                assert_eq!(u.scope(), &[v(0)]);
                 assert_eq!(u.data(), &[11.0, 22.0]);
             }
             _ => panic!("Expected unary factor"),
@@ -270,14 +274,14 @@ mod tests {
 
     #[test]
     fn test_combine_unary_x_unary_intersect_three_states() {
-        let f = UnaryFactor::new(0, vec![1.0, 2.0, 3.0]);
-        let g = UnaryFactor::new(0, vec![10.0, 20.0, 30.0]);
+        let f = UnaryFactor::new(v(0), vec![1.0, 2.0, 3.0]);
+        let g = UnaryFactor::new(v(0), vec![10.0, 20.0, 30.0]);
 
         let result = f.combine(FactorKind::Unary(g));
 
         match result {
             FactorKind::Unary(u) => {
-                assert_eq!(u.scope(), &[0]);
+                assert_eq!(u.scope(), &[v(0)]);
                 assert_eq!(u.data(), &[11.0, 22.0, 33.0]);
             }
             _ => panic!("Expected unary factor"),
@@ -286,14 +290,14 @@ mod tests {
 
     #[test]
     fn test_combine_unary_x_unary_disjoint() {
-        let f = UnaryFactor::new(0, vec![1.0, 2.0]);
-        let g = UnaryFactor::new(1, vec![10.0, 20.0]);
+        let f = UnaryFactor::new(v(0), vec![1.0, 2.0]);
+        let g = UnaryFactor::new(v(1), vec![10.0, 20.0]);
 
         let result = f.combine(FactorKind::Unary(g));
 
         match result {
             FactorKind::Dense(d) => {
-                assert_eq!(d.scope(), &[0, 1]);
+                assert_eq!(d.scope(), &[v(0), v(1)]);
 
                 let expected = array![[11.0, 21.0], [12.0, 22.0],].into_dyn();
 
@@ -305,14 +309,14 @@ mod tests {
 
     #[test]
     fn test_combine_unary_x_unary_unsorted_scope() {
-        let f = UnaryFactor::new(1, vec![1.0, 2.0]);
-        let g = UnaryFactor::new(0, vec![10.0, 20.0]);
+        let f = UnaryFactor::new(v(1), vec![1.0, 2.0]);
+        let g = UnaryFactor::new(v(0), vec![10.0, 20.0]);
 
         let result = f.combine(FactorKind::Unary(g));
 
         match result {
             FactorKind::Dense(d) => {
-                assert_eq!(d.scope(), &[0, 1]);
+                assert_eq!(d.scope(), &[v(0), v(1)]);
 
                 let expected = array![[11.0, 12.0], [21.0, 22.0],].into_dyn();
 
@@ -324,14 +328,14 @@ mod tests {
 
     #[test]
     fn test_combine_unary_x_scalar() {
-        let f = UnaryFactor::new(0, vec![1.0, 2.0]);
+        let f = UnaryFactor::new(v(0), vec![1.0, 2.0]);
         let scalar = ScalarFactor::new(10.0);
 
         let result = f.combine(FactorKind::Scalar(scalar));
 
         match result {
             FactorKind::Unary(u) => {
-                assert_eq!(u.scope(), &[0]);
+                assert_eq!(u.scope(), &[v(0)]);
                 assert_eq!(u.data(), &[11.0, 12.0]);
             }
             _ => panic!("Expected unary factor"),
@@ -340,15 +344,15 @@ mod tests {
 
     #[test]
     fn test_combine_unary_x_dense_intersect() {
-        let f = UnaryFactor::new(1, vec![10.0, 20.0]);
+        let f = UnaryFactor::new(v(1), vec![10.0, 20.0]);
 
-        let dense = DenseFactor::new(vec![0, 1], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
+        let dense = DenseFactor::new(vec![v(0), v(1)], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
 
         let result = f.combine(FactorKind::Dense(dense));
 
         match result {
             FactorKind::Dense(d) => {
-                assert_eq!(d.scope(), &[0, 1]);
+                assert_eq!(d.scope(), &[v(0), v(1)]);
 
                 let expected = array![[11.0, 22.0], [13.0, 24.0],].into_dyn();
 
@@ -360,14 +364,14 @@ mod tests {
 
     #[test]
     fn test_combine_unary_x_dense_disjoint() {
-        let f = UnaryFactor::new(2, vec![10.0, 20.0]);
+        let f = UnaryFactor::new(v(2), vec![10.0, 20.0]);
 
-        let dense = DenseFactor::new(vec![0, 1], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
+        let dense = DenseFactor::new(vec![v(0), v(1)], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
 
         let result = f.combine(FactorKind::Dense(dense));
         match result {
             FactorKind::Dense(d) => {
-                assert_eq!(d.scope(), &[0, 1, 2]);
+                assert_eq!(d.scope(), &[v(0), v(1), v(2)]);
 
                 let expected =
                     array![[[11.0, 12.0], [13.0, 14.0]], [[21.0, 22.0], [23.0, 24.0]],].into_dyn();
@@ -380,15 +384,15 @@ mod tests {
 
     #[test]
     fn test_combine_unary_x_dense_unsorted_scope() {
-        let f = UnaryFactor::new(1, vec![10.0, 20.0]);
+        let f = UnaryFactor::new(v(1), vec![10.0, 20.0]);
 
-        let dense = DenseFactor::new(vec![1, 0], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
+        let dense = DenseFactor::new(vec![v(1), v(0)], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
 
         let result = f.combine(FactorKind::Dense(dense));
 
         match result {
             FactorKind::Dense(d) => {
-                assert_eq!(d.scope(), &[0, 1]);
+                assert_eq!(d.scope(), &[v(0), v(1)]);
 
                 let expected = array![[11.0, 23.0], [12.0, 24.0],].into_dyn();
 

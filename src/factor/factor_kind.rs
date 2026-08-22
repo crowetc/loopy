@@ -1,5 +1,5 @@
 use super::Semiring;
-use super::{DenseFactor, Factor, FactorOps, ScalarFactor, UnaryFactor};
+use super::{DenseFactor, Factor, FactorOps, ScalarFactor, UnaryFactor, VariableId};
 
 #[derive(Clone, Debug)]
 pub enum FactorKind {
@@ -9,7 +9,7 @@ pub enum FactorKind {
 }
 
 impl Factor for FactorKind {
-    fn scope(&self) -> &[usize] {
+    fn scope(&self) -> &[VariableId] {
         match self {
             FactorKind::Dense(d) => d.scope(),
             FactorKind::Scalar(s) => s.scope(),
@@ -24,7 +24,7 @@ where
     ScalarFactor: FactorOps<S>,
     UnaryFactor: FactorOps<S>,
 {
-    fn reduce(self, vars: &[usize]) -> FactorKind {
+    fn reduce(self, vars: &[VariableId]) -> FactorKind {
         match self {
             FactorKind::Dense(d) => <DenseFactor as FactorOps<S>>::reduce(d, vars),
 

@@ -4,7 +4,7 @@
 //! - `value`: a single log-potential
 
 use super::LogSumProduct;
-use super::{DenseFactor, Factor, FactorKind, FactorOps, UnaryFactor};
+use super::{DenseFactor, Factor, FactorKind, FactorOps, UnaryFactor, VariableId};
 
 /// A scalar factor (log-space).
 ///
@@ -39,14 +39,14 @@ impl ScalarFactor {
 /// Implement `Factor` trait
 impl Factor for ScalarFactor {
     /// A scalar factor has empty scope
-    fn scope(&self) -> &[usize] {
+    fn scope(&self) -> &[VariableId] {
         &[] // empty scope
     }
 }
 
 impl FactorOps<LogSumProduct> for ScalarFactor {
     /// Marginalizing a scalar factor is a no-op.
-    fn reduce(self, _vars: &[usize]) -> FactorKind {
+    fn reduce(self, _vars: &[VariableId]) -> FactorKind {
         FactorKind::Scalar(self)
     }
 
