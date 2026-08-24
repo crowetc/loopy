@@ -210,7 +210,12 @@ pub enum GraphError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::factor::UnaryFactor;
+    use crate::factor::{DenseFactor, UnaryFactor};
+    use ndarray::array;
+
+    fn v(id: usize) -> VariableId {
+        VariableId::new(id)
+    }
 
     #[test]
     fn new_graph_is_empty() {
@@ -253,6 +258,18 @@ mod tests {
         let variable = graph.variable(x).unwrap();
 
         assert_eq!(variable.name(), "x");
+    }
+
+    #[test]
+    fn variable_node_can_be_retrieved_by_id() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(Variable::new("x")).unwrap();
+
+        let node = graph.variable_node(x).unwrap();
+
+        assert_eq!(node.variable().name(), "x");
+        assert!(node.factors().is_empty());
     }
 
     #[test]
@@ -353,6 +370,21 @@ mod tests {
 
         assert!(graph.add_factor(factor).is_err());
         assert_eq!(graph.num_factors(), 0);
+        assert!(graph.factors().is_empty());
+    }
+
+    #[test]
+    fn add_factor_creates_factor_node() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let factor = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 1.0]));
+
+        let id = graph.add_factor(factor).unwrap();
+
+        let node = graph.factor_node(id).unwrap();
+
+        assert_eq!(node.scope(), &[x]);
     }
 
     #[test]
@@ -366,5 +398,140 @@ mod tests {
 
         assert!(graph.factor(id).is_some());
         assert_eq!(graph.factor(id).unwrap().scope(), &[x]);
+    }
+
+    #[test]
+    fn factor_id_corresponds_to_storage_order() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let y = graph.add_variable(Variable::new("y")).unwrap();
+
+        let f = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 1.0]));
+        let g = FactorKind::Unary(UnaryFactor::new(y, vec![0.0, 1.0]));
+
+        let f_id = graph.add_factor(f).unwrap();
+        let g_id = graph.add_factor(g).unwrap();
+
+        assert_eq!(f_id.index(), 0);
+        assert_eq!(g_id.index(), 1);
+
+        assert_eq!(graph.factor_node(f_id).unwrap().scope(), &[x]);
+        assert_eq!(graph.factor_node(g_id).unwrap().scope(), &[y]);
+    }
+
+    #[test]
+    fn unknown_factor_id_returns_none() {
+        let graph = FactorGraph::new();
+
+        let id = FactorId::new(0);
+
+        assert!(graph.factor(id).is_none());
+        assert!(graph.factor_node(id).is_none());
+    }
+
+    #[test]
+    fn factor_is_added_to_each_variable_in_its_scope() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let y = graph.add_variable(Variable::new("y")).unwrap();
+        let z = graph.add_variable(Variable::new("z")).unwrap();
+
+        let factor = FactorKind::Dense(DenseFactor::new(
+            vec![x, y, z],
+            array![[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]],].into_dyn(),
+        ));
+
+        let factor_id = graph.add_factor(factor).unwrap();
+
+        assert_eq!(graph.variable_node(x).unwrap().factors(), &[factor_id]);
+        assert_eq!(graph.variable_node(y).unwrap().factors(), &[factor_id]);
+        assert_eq!(graph.variable_node(z).unwrap().factors(), &[factor_id]);
+    }
+
+    #[test]
+    fn variable_not_in_factor_scope_is_not_connected() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let y = graph.add_variable(Variable::new("y")).unwrap();
+        let z = graph.add_variable(Variable::new("z")).unwrap();
+
+        let factor = FactorKind::Dense(DenseFactor::new(
+            vec![x, y],
+            array![[1.0, 2.0], [3.0, 4.0]].into_dyn(),
+        ));
+
+        let factor_id = graph.add_factor(factor).unwrap();
+
+        assert_eq!(graph.variable_node(x).unwrap().factors(), &[factor_id]);
+        assert_eq!(graph.variable_node(y).unwrap().factors(), &[factor_id]);
+        assert!(graph.variable_node(z).unwrap().factors().is_empty());
+    }
+
+    #[test]
+    fn variable_node_contains_connected_factor() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(Variable::new("x")).unwrap();
+
+        let factor = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 1.0]));
+        let factor_id = graph.add_factor(factor).unwrap();
+
+        let node = graph.variable_node(x).unwrap();
+
+        assert_eq!(node.factors(), &[factor_id]);
+    }
+
+    #[test]
+    fn variable_node_contains_factors_in_addition_order() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(Variable::new("x")).unwrap();
+
+        let f = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 1.0]));
+        let g = FactorKind::Unary(UnaryFactor::new(x, vec![1.0, 0.0]));
+
+        let f_id = graph.add_factor(f).unwrap();
+        let g_id = graph.add_factor(g).unwrap();
+
+        let node = graph.variable_node(x).unwrap();
+
+        assert_eq!(node.factors(), &[f_id, g_id]);
+    }
+
+    #[test]
+    fn factor_node_scope_matches_factor_scope() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(Variable::new("x")).unwrap();
+
+        let factor = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 1.0]));
+        let id = graph.add_factor(factor).unwrap();
+
+        let factor_node = graph.factor_node(id).unwrap();
+
+        assert_eq!(factor_node.scope(), factor_node.factor().scope());
+    }
+
+    #[test]
+    fn factor_node_exposes_multivariable_scope() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let y = graph.add_variable(Variable::new("y")).unwrap();
+        let z = graph.add_variable(Variable::new("z")).unwrap();
+
+        let factor = FactorKind::Dense(DenseFactor::new(
+            vec![x, y, z],
+            array![[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]],].into_dyn(),
+        ));
+
+        let id = graph.add_factor(factor).unwrap();
+
+        let node = graph.factor_node(id).unwrap();
+
+        assert_eq!(node.scope(), &[x, y, z]);
     }
 }
