@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use loopy::factor::{DenseFactor, FactorKind, FactorOps, UnaryFactor, VariableId};
+use loopy::factor::{DenseFactor, FactorKind, FactorOps, LogSumProduct, UnaryFactor, VariableId};
 use ndarray::{ArrayD, IxDyn};
 use std::hint::black_box;
 
@@ -35,7 +35,11 @@ fn bench_dense_x_dense(c: &mut Criterion) {
         let g = dense_factor(vec![VariableId::new(2), VariableId::new(3)], &[20, 20]);
 
         b.iter(|| {
-            let out = black_box(f.clone()).combine(FactorKind::Dense(g.clone()));
+            let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
+                black_box(f.clone()),
+                FactorKind::Dense(g.clone()),
+            );
+
             consume_result(out);
         })
     });
@@ -49,7 +53,11 @@ fn bench_dense_x_dense(c: &mut Criterion) {
         let g = dense_factor(vec![VariableId::new(1), VariableId::new(2)], &[20, 20]);
 
         b.iter(|| {
-            let out = black_box(f.clone()).combine(FactorKind::Dense(g.clone()));
+            let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
+                black_box(f.clone()),
+                FactorKind::Dense(g.clone()),
+            );
+
             consume_result(out);
         })
     });
@@ -63,7 +71,11 @@ fn bench_dense_x_dense(c: &mut Criterion) {
         let g = dense_factor(vec![VariableId::new(2), VariableId::new(1)], &[20, 20]);
 
         b.iter(|| {
-            let out = black_box(f.clone()).combine(FactorKind::Dense(g.clone()));
+            let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
+                black_box(f.clone()),
+                FactorKind::Dense(g.clone()),
+            );
+
             consume_result(out);
         })
     });
@@ -79,7 +91,11 @@ fn bench_dense_x_unary(c: &mut Criterion) {
         let u = unary_factor(VariableId::new(1), 100);
 
         b.iter(|| {
-            let out = black_box(f.clone()).combine(FactorKind::Unary(u.clone()));
+            let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
+                black_box(f.clone()),
+                FactorKind::Unary(u.clone()),
+            );
+
             consume_result(out);
         })
     });
@@ -93,7 +109,11 @@ fn bench_dense_x_unary(c: &mut Criterion) {
         let u = unary_factor(VariableId::new(2), 100);
 
         b.iter(|| {
-            let out = black_box(f.clone()).combine(FactorKind::Unary(u.clone()));
+            let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
+                black_box(f.clone()),
+                FactorKind::Unary(u.clone()),
+            );
+
             consume_result(out);
         })
     });
@@ -108,20 +128,28 @@ fn bench_unary_x_unary(c: &mut Criterion) {
         let g = unary_factor(VariableId::new(0), 1000);
 
         b.iter(|| {
-            let out = black_box(f.clone()).combine(FactorKind::Unary(g.clone()));
+            let out = <UnaryFactor as FactorOps<LogSumProduct>>::combine(
+                black_box(f.clone()),
+                FactorKind::Unary(g.clone()),
+            );
+
             consume_result(out);
         })
     });
 
     //
-    // Different variables -> Dense result
+    // Different variables → Dense result
     //
     c.bench_function("combine_unary_x_unary_disjoint", |b| {
         let f = unary_factor(VariableId::new(0), 100);
         let g = unary_factor(VariableId::new(1), 100);
 
         b.iter(|| {
-            let out = black_box(f.clone()).combine(FactorKind::Unary(g.clone()));
+            let out = <UnaryFactor as FactorOps<LogSumProduct>>::combine(
+                black_box(f.clone()),
+                FactorKind::Unary(g.clone()),
+            );
+
             consume_result(out);
         })
     });

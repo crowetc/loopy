@@ -4,9 +4,9 @@
 //! - a `scope`: variable IDs
 //! - a dense `ndarray::ArrayD<f64>` data containing log-potentials
 
-use super::LogSumProduct;
 use super::log_utils::{lse_finalize, lse_update};
 use super::{DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor, UnaryFactor, VariableId};
+use super::{LogMaxProduct, LogSumProduct};
 use ndarray::{ArrayD, IxDyn};
 use std::f64;
 
@@ -72,93 +72,81 @@ impl DenseFactor {
     // Marginalization
     //
 
-    /// Core marginalization kernel.
+    /// Core marginalization kernel for sum.
     ///
     /// This method:
     /// 1. Partitions axes into kept vs. reduced.
     /// 2. Permutes so kept axes come first.
     /// 3. Iterates contiguous blocks corresponding to reduced axes.
     /// 4. Performs log-sum-exp reduction over each block.
-    pub(crate) fn reduce_kernel(&self, vars: &[VariableId]) -> DenseFactor {
-        //
-        // Partition Axes
-        //
-        let mut vars_sorted = vars.to_vec();
-        vars_sorted.sort_unstable();
-
-        let mut idx_marg = Vec::with_capacity(vars_sorted.len());
-        let mut idx_keep = Vec::with_capacity(self.scope.len());
-        let mut new_scope = Vec::with_capacity(self.scope.len());
-
-        let mut j = 0;
-        for (i, &v) in self.scope.iter().enumerate() {
-            while j < vars_sorted.len() && vars_sorted[j] < v {
-                j += 1;
-            }
-
-            let eliminate = j < vars_sorted.len() && vars_sorted[j] == v;
-
-            if eliminate {
-                idx_marg.push(i);
-            } else {
-                idx_keep.push(i);
-                new_scope.push(v);
-            }
-        }
-
-        // Nothing to eliminate
-        if idx_marg.is_empty() {
-            return self.clone();
-        }
-
-        //
-        // Permute Axes
-        //
-        let mut order = Vec::with_capacity(self.scope.len());
-        order.extend_from_slice(&idx_keep);
-        order.extend_from_slice(&idx_marg);
-
-        let permuted = self.data.view().permuted_axes(order);
-
-        //
-        // Block Sizes
-        //
-        let shape = self.data.shape();
-
-        let kept_shape: Vec<usize> = idx_keep.iter().map(|&i| shape[i]).collect();
-
-        let kept_size = if kept_shape.is_empty() {
-            1
-        } else {
-            kept_shape.iter().product::<usize>()
+    pub(crate) fn reduce_sum_kernel(self, vars: &[VariableId]) -> DenseFactor {
+        let reduction = match build_reduction(&self.scope, self.data.shape(), vars) {
+            Some(reduction) => reduction,
+            None => return self,
         };
 
-        let elim_size = idx_marg.iter().map(|&i| shape[i]).product::<usize>();
+        let permuted = self.data.view().permuted_axes(reduction.order);
 
-        //
-        // Log-Sum-Exp Reduction
-        //
-        let mut out_vec = Vec::with_capacity(kept_size);
+        let mut out_vec = Vec::with_capacity(reduction.kept_size);
         let mut it = permuted.iter();
 
-        for _ in 0..kept_size {
+        for _ in 0..reduction.kept_size {
             let mut cur_max = f64::NEG_INFINITY;
             let mut cur_sum = 0.0;
 
-            for _ in 0..elim_size {
+            for _ in 0..reduction.elim_size {
                 let &x = it.next().expect("iterator length must match expected size");
+
                 lse_update(x, &mut cur_max, &mut cur_sum);
             }
 
             out_vec.push(lse_finalize(cur_max, cur_sum));
         }
 
-        debug_assert_eq!(out_vec.len(), kept_size);
+        debug_assert_eq!(out_vec.len(), reduction.kept_size);
 
-        let out = ArrayD::from_shape_vec(IxDyn(&kept_shape), out_vec)
+        let out = ArrayD::from_shape_vec(IxDyn(&reduction.kept_shape), out_vec)
             .expect("shape and data length must match");
 
-        DenseFactor::new(new_scope, out)
+        DenseFactor::new(reduction.new_scope, out)
+    }
+
+    /// Core marginalization kernel for max-product.
+    ///
+    /// This method:
+    /// 1. Partitions axes into kept vs. reduced.
+    /// 2. Permutes so kept axes come first.
+    /// 3. Iterates contiguous blocks corresponding to reduced axes.
+    /// 4. Performs maximum reduction over each block.
+    pub(crate) fn reduce_max_kernel(self, vars: &[VariableId]) -> DenseFactor {
+        let reduction = match build_reduction(&self.scope, self.data.shape(), vars) {
+            Some(reduction) => reduction,
+            None => return self,
+        };
+
+        let permuted = self.data.view().permuted_axes(reduction.order);
+
+        let mut out_vec = Vec::with_capacity(reduction.kept_size);
+        let mut it = permuted.iter();
+
+        for _ in 0..reduction.kept_size {
+            let mut cur_max = f64::NEG_INFINITY;
+
+            for _ in 0..reduction.elim_size {
+                let &x = it.next().expect("iterator length must match expected size");
+
+                cur_max = cur_max.max(x);
+            }
+
+            out_vec.push(cur_max);
+        }
+
+        debug_assert_eq!(out_vec.len(), reduction.kept_size);
+
+        let out = ArrayD::from_shape_vec(IxDyn(&reduction.kept_shape), out_vec)
+            .expect("shape and data length must match");
+
+        DenseFactor::new(reduction.new_scope, out)
     }
 
     //
@@ -434,9 +422,16 @@ impl Factor for DenseFactor {
     }
 }
 
+/// Implement `DiscreteFactor` trait.
+impl DiscreteFactor for DenseFactor {
+    fn card(&self) -> &[usize] {
+        self.data.shape()
+    }
+}
+
 impl FactorOps<LogSumProduct> for DenseFactor {
     fn reduce(self, vars: &[VariableId]) -> FactorKind {
-        let reduced = self.reduce_kernel(vars);
+        let reduced = self.reduce_sum_kernel(vars);
         match reduced.scope.len() {
             0 => {
                 let val = reduced.data().iter().copied().next().unwrap();
@@ -460,10 +455,29 @@ impl FactorOps<LogSumProduct> for DenseFactor {
     }
 }
 
-/// Implement `DiscreteFactor` trait.
-impl DiscreteFactor for DenseFactor {
-    fn card(&self) -> &[usize] {
-        self.data.shape()
+impl FactorOps<LogMaxProduct> for DenseFactor {
+    fn reduce(self, vars: &[VariableId]) -> FactorKind {
+        let reduced = self.reduce_max_kernel(vars);
+        match reduced.scope.len() {
+            0 => {
+                let val = reduced.data().iter().copied().next().unwrap();
+                FactorKind::Scalar(ScalarFactor::new(val))
+            }
+            1 => FactorKind::Unary(crate::factor::utils::dense_into_unary(reduced)),
+            _ => FactorKind::Dense(reduced),
+        }
+    }
+
+    fn combine(self, other: FactorKind) -> FactorKind {
+        match other {
+            FactorKind::Dense(other) => FactorKind::Dense(self.combine_dense(&other)),
+            FactorKind::Unary(unary) => FactorKind::Dense(self.combine_unary(&unary)),
+
+            FactorKind::Scalar(s) => {
+                let data = self.data.mapv(|x| x + s.value());
+                FactorKind::Dense(DenseFactor::new(self.scope, data))
+            }
+        }
     }
 }
 
@@ -631,6 +645,111 @@ fn build_alignment(f1_scope: &[VariableId], f2_scope: &[VariableId]) -> Alignmen
     }
 }
 
+/// Information needed to reduce a factor over a set of variables.
+///
+/// The reduction axes are rearranged to the end of the factor so that
+/// assignments for the retained variables form contiguous logical blocks.
+struct Reduction {
+    /// Axis permutation: kept axes first, reduced axes second.
+    order: Vec<usize>,
+
+    /// Scope of the resulting factor.
+    new_scope: Vec<VariableId>,
+
+    /// Shape of the retained dimensions.
+    kept_shape: Vec<usize>,
+
+    /// Number of output elements.
+    kept_size: usize,
+
+    /// Number of input elements contributing to each output element.
+    elim_size: usize,
+}
+
+fn build_reduction(
+    scope: &[VariableId],
+    shape: &[usize],
+    vars: &[VariableId],
+) -> Option<Reduction> {
+    //
+    // Sort scope by variable ID while retaining original axis indices.
+    //
+
+    let mut scope_sorted: Vec<(VariableId, usize)> = scope
+        .iter()
+        .enumerate()
+        .map(|(axis, &var)| (var, axis))
+        .collect();
+
+    scope_sorted.sort_unstable_by_key(|&(var, _)| var);
+
+    //
+    // Sort variables to eliminate.
+    //
+
+    let mut vars_sorted = vars.to_vec();
+    vars_sorted.sort_unstable();
+
+    let mut idx_marg = Vec::with_capacity(vars_sorted.len());
+    let mut idx_keep = Vec::with_capacity(scope.len());
+    let mut new_scope = Vec::with_capacity(scope.len());
+
+    let mut j = 0;
+
+    for &(v, axis) in &scope_sorted {
+        while j < vars_sorted.len() && vars_sorted[j] < v {
+            j += 1;
+        }
+
+        let eliminate = j < vars_sorted.len() && vars_sorted[j] == v;
+
+        if eliminate {
+            idx_marg.push(axis);
+        } else {
+            idx_keep.push(axis);
+            new_scope.push(v);
+        }
+    }
+
+    //
+    // Nothing to eliminate.
+    //
+
+    if idx_marg.is_empty() {
+        return None;
+    }
+
+    //
+    // Permutation: kept axes first, eliminated axes second.
+    //
+
+    let mut order = Vec::with_capacity(scope.len());
+    order.extend_from_slice(&idx_keep);
+    order.extend_from_slice(&idx_marg);
+
+    //
+    // Output shape and block sizes.
+    //
+
+    let kept_shape: Vec<usize> = idx_keep.iter().map(|&axis| shape[axis]).collect();
+
+    let kept_size = if kept_shape.is_empty() {
+        1
+    } else {
+        kept_shape.iter().product()
+    };
+
+    let elim_size = idx_marg.iter().map(|&axis| shape[axis]).product();
+
+    Some(Reduction {
+        order,
+        new_scope,
+        kept_shape,
+        kept_size,
+        elim_size,
+    })
+}
+
 /// Product of dimensions, treating an empty product as one.
 ///
 /// This is convenient for Cartesian-product kernels where an empty group of
@@ -683,7 +802,7 @@ mod tests {
 
         let f = DenseFactor::new(vec![v(0), v(1)], data);
 
-        let g = f.reduce(&[v(0)]);
+        let g = <DenseFactor as FactorOps<LogSumProduct>>::reduce(f, &[v(0)]);
         let expected = ln_array1(&[4.0, 6.0]);
 
         match g {
@@ -712,7 +831,7 @@ mod tests {
 
         let f = DenseFactor::new(vec![v(0), v(1)], data);
 
-        let g = f.reduce(&[v(2)]);
+        let g = <DenseFactor as FactorOps<LogSumProduct>>::reduce(f, &[v(2)]);
         let expected = array![[1.0_f64, 2.0], [3.0, 4.0]]
             .mapv(|x| x.ln())
             .into_dyn();
@@ -742,7 +861,7 @@ mod tests {
 
         let f = DenseFactor::new(vec![v(0), v(1), v(2)], data);
 
-        let g = f.reduce(&[v(0), v(2)]);
+        let g = <DenseFactor as FactorOps<LogSumProduct>>::reduce(f, &[v(0), v(2)]);
         let expected = ln_array1(&[14.0, 22.0]);
 
         match g {
@@ -769,7 +888,7 @@ mod tests {
 
         let f = DenseFactor::new(vec![v(0)], data);
 
-        let g = f.reduce(&[v(0)]);
+        let g = <DenseFactor as FactorOps<LogSumProduct>>::reduce(f, &[v(0)]);
 
         match g {
             FactorKind::Scalar(s) => {
@@ -777,6 +896,97 @@ mod tests {
                 assert!((s.value() - expected).abs() <= 1e-12);
             }
             _ => panic!("Expected scalar factor"),
+        }
+    }
+
+    #[test]
+    fn test_reduce_unsorted_scope() {
+        let data = array![[1.0_f64, 2.0], [3.0, 4.0]]
+            .mapv(|x| x.ln())
+            .into_dyn();
+
+        let f = DenseFactor::new(vec![v(1), v(0)], data);
+
+        let g = <DenseFactor as FactorOps<LogSumProduct>>::reduce(f, &[v(0)]);
+
+        match g {
+            FactorKind::Unary(u) => {
+                assert_eq!(u.scope(), &[v(1)]);
+
+                let expected = [3.0_f64.ln(), 7.0_f64.ln()];
+
+                for (actual, expected) in u.data().iter().zip(expected) {
+                    assert!((actual - expected).abs() < 1e-12);
+                }
+            }
+            _ => panic!("Expected unary factor"),
+        }
+    }
+
+    #[test]
+    fn test_reduce_unsorted_3d_scope() {
+        let data = array![[[1.0_f64, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]],]
+            .mapv(|x| x.ln())
+            .into_dyn();
+
+        // axis 0 -> v2
+        // axis 1 -> v0
+        // axis 2 -> v1
+        let f = DenseFactor::new(vec![v(2), v(0), v(1)], data);
+
+        // Eliminate v0 and v2, leaving v1.
+        let g = <DenseFactor as FactorOps<LogSumProduct>>::reduce(f, &[v(0), v(2)]);
+
+        match g {
+            FactorKind::Unary(u) => {
+                assert_eq!(u.scope(), &[v(1)]);
+
+                // v1 = 0:
+                //   1 + 3 + 5 + 7 = 16
+                //
+                // v1 = 1:
+                //   2 + 4 + 6 + 8 = 20
+                let expected = [16.0_f64.ln(), 20.0_f64.ln()];
+
+                for (actual, expected) in u.data().iter().zip(expected) {
+                    assert!((actual - expected).abs() < 1e-12);
+                }
+            }
+            _ => panic!("Expected unary factor"),
+        }
+    }
+
+    #[test]
+    fn test_reduce_max_single_in_scope() {
+        let data = array![[1.0_f64, 2.0], [3.0, 4.0]]
+            .mapv(|x| x.ln())
+            .into_dyn();
+
+        let f = DenseFactor::new(vec![v(0), v(1)], data);
+
+        let g = <DenseFactor as FactorOps<LogMaxProduct>>::reduce(f, &[v(0)]);
+
+        match g {
+            FactorKind::Unary(u) => {
+                assert_eq!(u.scope(), &[v(1)]);
+
+                let expected = [3.0_f64.ln(), 4.0_f64.ln()];
+
+                for (actual, expected) in u.data().iter().zip(expected.iter()) {
+                    assert!(
+                        (actual - expected).abs() < 1e-12,
+                        "Expected {}, got {}",
+                        expected,
+                        actual
+                    );
+                }
+            }
+            FactorKind::Dense(d) => {
+                panic!("Expected unary factor, got dense factor: {:?}", d);
+            }
+            FactorKind::Scalar(s) => {
+                panic!("Expected unary factor, got scalar factor: {:?}", s);
+            }
         }
     }
 
@@ -789,7 +999,8 @@ mod tests {
             arr2(&[[10.0, 20.0], [30.0, 40.0]]).into_dyn(),
         );
 
-        let out = match f.combine(FactorKind::Dense(g)) {
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Dense(g))
+        {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
         };
@@ -808,7 +1019,8 @@ mod tests {
 
         let g = DenseFactor::new(vec![v(1)], arr1(&[10.0, 20.0]).into_dyn());
 
-        let out = match f.combine(FactorKind::Dense(g)) {
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Dense(g))
+        {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
         };
@@ -825,7 +1037,8 @@ mod tests {
 
         let u = UnaryFactor::new(v(1), vec![10.0, 20.0]);
 
-        let out = match f.combine(FactorKind::Unary(u)) {
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(u))
+        {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
         };
@@ -842,7 +1055,8 @@ mod tests {
 
         let u = UnaryFactor::new(v(2), vec![10.0, 20.0]);
 
-        let out = match f.combine(FactorKind::Unary(u)) {
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(u))
+        {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
         };
@@ -866,7 +1080,8 @@ mod tests {
             array![[10.0, 20.0], [30.0, 40.0],].into_dyn(),
         );
 
-        let out = match f.combine(FactorKind::Dense(g)) {
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Dense(g))
+        {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
         };
@@ -888,7 +1103,8 @@ mod tests {
 
         let u = UnaryFactor::new(v(1), vec![10.0, 20.0]);
 
-        let out = match f.combine(FactorKind::Unary(u)) {
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(u))
+        {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
         };

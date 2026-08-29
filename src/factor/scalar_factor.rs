@@ -3,8 +3,8 @@
 //! A `ScalarFactor` stores:
 //! - `value`: a single log-potential
 
-use super::LogSumProduct;
 use super::{DenseFactor, Factor, FactorKind, FactorOps, UnaryFactor, VariableId};
+use super::{LogMaxProduct, LogSumProduct};
 
 /// A scalar factor (log-space).
 ///
@@ -64,6 +64,28 @@ impl FactorOps<LogSumProduct> for ScalarFactor {
             FactorKind::Dense(d) => {
                 let data = d.data().mapv(|x| x + self.value());
                 FactorKind::Dense(DenseFactor::new(d.scope().to_vec(), data))
+            }
+        }
+    }
+}
+
+impl FactorOps<LogMaxProduct> for ScalarFactor {
+    fn reduce(self, _vars: &[VariableId]) -> FactorKind {
+        FactorKind::Scalar(self)
+    }
+
+    fn combine(self, other: FactorKind) -> FactorKind {
+        match other {
+            FactorKind::Scalar(other) => {
+                FactorKind::Scalar(ScalarFactor::new(self.value() + other.value()))
+            }
+
+            FactorKind::Unary(unary) => {
+                <UnaryFactor as FactorOps<LogMaxProduct>>::combine(unary, FactorKind::Scalar(self))
+            }
+
+            FactorKind::Dense(dense) => {
+                <DenseFactor as FactorOps<LogMaxProduct>>::combine(dense, FactorKind::Scalar(self))
             }
         }
     }

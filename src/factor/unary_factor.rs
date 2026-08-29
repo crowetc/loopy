@@ -5,9 +5,9 @@
 //! - `data`: log-potentials for each domain element
 use ndarray::{ArrayD, IxDyn};
 
-use super::LogSumProduct;
 use super::log_utils::lse_two_pass;
 use super::{DenseFactor, DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor, VariableId};
+use super::{LogMaxProduct, LogSumProduct};
 
 /// A unary factor over a single discrete variable (log-space).
 ///
@@ -130,7 +130,18 @@ impl Factor for UnaryFactor {
     }
 }
 
-impl FactorOps<LogSumProduct> for UnaryFactor {
+/// Implement `DiscreteFactor` trait.
+impl DiscreteFactor for UnaryFactor {
+    fn card(&self) -> &[usize] {
+        &self.card
+    }
+}
+
+impl FactorOps<LogSumProduct> for UnaryFactor
+where
+    DenseFactor: FactorOps<LogSumProduct>,
+    ScalarFactor: FactorOps<LogSumProduct>,
+{
     /// reduce variables `vars`.
     ///
     /// - If this unary variable is eliminated, return a unary factor with a
@@ -147,7 +158,9 @@ impl FactorOps<LogSumProduct> for UnaryFactor {
 
     fn combine(self, other: FactorKind) -> FactorKind {
         match other {
-            FactorKind::Dense(d) => d.combine(FactorKind::Unary(self)),
+            FactorKind::Dense(d) => {
+                <DenseFactor as FactorOps<LogSumProduct>>::combine(d, FactorKind::Unary(self))
+            }
             FactorKind::Unary(other) => self.combine_unary(other),
             FactorKind::Scalar(s) => {
                 let data = self.data.iter().map(|x| x + s.value()).collect::<Vec<_>>();
@@ -158,10 +171,37 @@ impl FactorOps<LogSumProduct> for UnaryFactor {
     }
 }
 
-/// Implement `DiscreteFactor` trait.
-impl DiscreteFactor for UnaryFactor {
-    fn card(&self) -> &[usize] {
-        &self.card
+impl FactorOps<LogMaxProduct> for UnaryFactor
+where
+    DenseFactor: FactorOps<LogMaxProduct>,
+    ScalarFactor: FactorOps<LogMaxProduct>,
+{
+    fn reduce(self, vars: &[VariableId]) -> FactorKind {
+        if vars.contains(&self.var) {
+            let total = self
+                .data()
+                .iter()
+                .copied()
+                .fold(f64::NEG_INFINITY, f64::max);
+
+            FactorKind::Scalar(ScalarFactor::new(total))
+        } else {
+            FactorKind::Unary(self)
+        }
+    }
+
+    fn combine(self, other: FactorKind) -> FactorKind {
+        match other {
+            FactorKind::Dense(d) => {
+                <DenseFactor as FactorOps<LogMaxProduct>>::combine(d, FactorKind::Unary(self))
+            }
+            FactorKind::Unary(other) => self.combine_unary(other),
+            FactorKind::Scalar(s) => {
+                let data = self.data().iter().map(|x| x + s.value()).collect();
+
+                FactorKind::Unary(UnaryFactor::new(self.var, data))
+            }
+        }
     }
 }
 
@@ -226,7 +266,7 @@ mod tests {
     fn test_reduce_in_scope() {
         let f = UnaryFactor::new(v(0), ln_array(&[1.0, 2.0]));
 
-        let result = f.reduce(&[v(0)]);
+        let result = <UnaryFactor as FactorOps<LogSumProduct>>::reduce(f, &[v(0)]);
 
         match result {
             FactorKind::Scalar(s) => {
@@ -241,7 +281,7 @@ mod tests {
     fn test_reduce_out_of_scope() {
         let f = UnaryFactor::new(v(0), vec![1.0, 2.0]);
 
-        let result = f.reduce(&[v(1)]);
+        let result = <UnaryFactor as FactorOps<LogSumProduct>>::reduce(f, &[v(1)]);
 
         match result {
             FactorKind::Unary(u) => {
@@ -261,7 +301,7 @@ mod tests {
         let f = UnaryFactor::new(v(0), vec![1.0, 2.0]);
         let g = UnaryFactor::new(v(0), vec![10.0, 20.0]);
 
-        let result = f.combine(FactorKind::Unary(g));
+        let result = <UnaryFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(g));
 
         match result {
             FactorKind::Unary(u) => {
@@ -277,7 +317,7 @@ mod tests {
         let f = UnaryFactor::new(v(0), vec![1.0, 2.0, 3.0]);
         let g = UnaryFactor::new(v(0), vec![10.0, 20.0, 30.0]);
 
-        let result = f.combine(FactorKind::Unary(g));
+        let result = <UnaryFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(g));
 
         match result {
             FactorKind::Unary(u) => {
@@ -293,7 +333,7 @@ mod tests {
         let f = UnaryFactor::new(v(0), vec![1.0, 2.0]);
         let g = UnaryFactor::new(v(1), vec![10.0, 20.0]);
 
-        let result = f.combine(FactorKind::Unary(g));
+        let result = <UnaryFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(g));
 
         match result {
             FactorKind::Dense(d) => {
@@ -312,7 +352,7 @@ mod tests {
         let f = UnaryFactor::new(v(1), vec![1.0, 2.0]);
         let g = UnaryFactor::new(v(0), vec![10.0, 20.0]);
 
-        let result = f.combine(FactorKind::Unary(g));
+        let result = <UnaryFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(g));
 
         match result {
             FactorKind::Dense(d) => {
@@ -331,7 +371,8 @@ mod tests {
         let f = UnaryFactor::new(v(0), vec![1.0, 2.0]);
         let scalar = ScalarFactor::new(10.0);
 
-        let result = f.combine(FactorKind::Scalar(scalar));
+        let result =
+            <UnaryFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Scalar(scalar));
 
         match result {
             FactorKind::Unary(u) => {
@@ -348,7 +389,8 @@ mod tests {
 
         let dense = DenseFactor::new(vec![v(0), v(1)], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
 
-        let result = f.combine(FactorKind::Dense(dense));
+        let result =
+            <UnaryFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Dense(dense));
 
         match result {
             FactorKind::Dense(d) => {
@@ -368,7 +410,8 @@ mod tests {
 
         let dense = DenseFactor::new(vec![v(0), v(1)], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
 
-        let result = f.combine(FactorKind::Dense(dense));
+        let result =
+            <UnaryFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Dense(dense));
         match result {
             FactorKind::Dense(d) => {
                 assert_eq!(d.scope(), &[v(0), v(1), v(2)]);
@@ -388,7 +431,8 @@ mod tests {
 
         let dense = DenseFactor::new(vec![v(1), v(0)], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
 
-        let result = f.combine(FactorKind::Dense(dense));
+        let result =
+            <UnaryFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Dense(dense));
 
         match result {
             FactorKind::Dense(d) => {

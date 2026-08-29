@@ -1,5 +1,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use loopy::factor::{DenseFactor, FactorKind, FactorOps, UnaryFactor, VariableId};
+use loopy::factor::{
+    DenseFactor, FactorKind, FactorOps, LogMaxProduct, LogSumProduct, UnaryFactor, VariableId,
+};
 use ndarray::{ArrayD, IxDyn};
 use std::hint::black_box;
 
@@ -25,9 +27,24 @@ fn bench_dense_reduce_single_axis(c: &mut Criterion) {
         &[20, 20, 20],
     );
 
-    c.bench_function("dense_reduce_single_axis", |b| {
+    c.bench_function("dense_reduce_sum_single_axis", |b| {
         b.iter(|| {
-            let out = black_box(f.clone()).reduce(black_box(&[VariableId::new(0)]));
+            let out = <DenseFactor as FactorOps<LogSumProduct>>::reduce(
+                black_box(f.clone()),
+                black_box(&[VariableId::new(0)]),
+            );
+
+            consume_result(out);
+        })
+    });
+
+    c.bench_function("dense_reduce_max_single_axis", |b| {
+        b.iter(|| {
+            let out = <DenseFactor as FactorOps<LogMaxProduct>>::reduce(
+                black_box(f.clone()),
+                black_box(&[VariableId::new(0)]),
+            );
+
             consume_result(out);
         })
     });
@@ -39,10 +56,24 @@ fn bench_dense_reduce_multiple_axes(c: &mut Criterion) {
         &[20, 20, 20],
     );
 
-    c.bench_function("dense_reduce_multiple_axes", |b| {
+    c.bench_function("dense_reduce_sum_multiple_axes", |b| {
         b.iter(|| {
-            let out =
-                black_box(f.clone()).reduce(black_box(&[VariableId::new(0), VariableId::new(2)]));
+            let out = <DenseFactor as FactorOps<LogSumProduct>>::reduce(
+                black_box(f.clone()),
+                black_box(&[VariableId::new(0), VariableId::new(2)]),
+            );
+
+            consume_result(out);
+        })
+    });
+
+    c.bench_function("dense_reduce_max_multiple_axes", |b| {
+        b.iter(|| {
+            let out = <DenseFactor as FactorOps<LogMaxProduct>>::reduce(
+                black_box(f.clone()),
+                black_box(&[VariableId::new(0), VariableId::new(2)]),
+            );
+
             consume_result(out);
         })
     });
@@ -54,13 +85,24 @@ fn bench_dense_reduce_to_scalar(c: &mut Criterion) {
         &[20, 20, 20],
     );
 
-    c.bench_function("dense_reduce_to_scalar", |b| {
+    c.bench_function("dense_reduce_sum_to_scalar", |b| {
         b.iter(|| {
-            let out = black_box(f.clone()).reduce(black_box(&[
-                VariableId::new(0),
-                VariableId::new(1),
-                VariableId::new(2),
-            ]));
+            let out = <DenseFactor as FactorOps<LogSumProduct>>::reduce(
+                black_box(f.clone()),
+                black_box(&[VariableId::new(0), VariableId::new(1), VariableId::new(2)]),
+            );
+
+            consume_result(out);
+        })
+    });
+
+    c.bench_function("dense_reduce_max_to_scalar", |b| {
+        b.iter(|| {
+            let out = <DenseFactor as FactorOps<LogMaxProduct>>::reduce(
+                black_box(f.clone()),
+                black_box(&[VariableId::new(0), VariableId::new(1), VariableId::new(2)]),
+            );
+
             consume_result(out);
         })
     });
@@ -72,9 +114,24 @@ fn bench_dense_reduce_out_of_scope(c: &mut Criterion) {
         &[20, 20, 20],
     );
 
-    c.bench_function("dense_reduce_out_of_scope", |b| {
+    c.bench_function("dense_reduce_sum_out_of_scope", |b| {
         b.iter(|| {
-            let out = black_box(f.clone()).reduce(black_box(&[VariableId::new(99)]));
+            let out = <DenseFactor as FactorOps<LogSumProduct>>::reduce(
+                black_box(f.clone()),
+                black_box(&[VariableId::new(99)]),
+            );
+
+            consume_result(out);
+        })
+    });
+
+    c.bench_function("dense_reduce_max_out_of_scope", |b| {
+        b.iter(|| {
+            let out = <DenseFactor as FactorOps<LogMaxProduct>>::reduce(
+                black_box(f.clone()),
+                black_box(&[VariableId::new(99)]),
+            );
+
             consume_result(out);
         })
     });
@@ -83,9 +140,24 @@ fn bench_dense_reduce_out_of_scope(c: &mut Criterion) {
 fn bench_unary_reduce(c: &mut Criterion) {
     let f = UnaryFactor::new(VariableId::new(0), vec![0.0_f64; 100]);
 
-    c.bench_function("unary_reduce", |b| {
+    c.bench_function("unary_reduce_sum", |b| {
         b.iter(|| {
-            let out = black_box(f.clone()).reduce(black_box(&[VariableId::new(0)]));
+            let out = <UnaryFactor as FactorOps<LogSumProduct>>::reduce(
+                black_box(f.clone()),
+                black_box(&[VariableId::new(0)]),
+            );
+
+            consume_result(out);
+        })
+    });
+
+    c.bench_function("unary_reduce_max", |b| {
+        b.iter(|| {
+            let out = <UnaryFactor as FactorOps<LogMaxProduct>>::reduce(
+                black_box(f.clone()),
+                black_box(&[VariableId::new(0)]),
+            );
+
             consume_result(out);
         })
     });
@@ -94,9 +166,24 @@ fn bench_unary_reduce(c: &mut Criterion) {
 fn bench_unary_reduce_out_of_scope(c: &mut Criterion) {
     let f = UnaryFactor::new(VariableId::new(0), vec![0.0_f64; 100]);
 
-    c.bench_function("unary_reduce_out_of_scope", |b| {
+    c.bench_function("unary_reduce_sum_out_of_scope", |b| {
         b.iter(|| {
-            let out = black_box(f.clone()).reduce(black_box(&[VariableId::new(99)]));
+            let out = <UnaryFactor as FactorOps<LogSumProduct>>::reduce(
+                black_box(f.clone()),
+                black_box(&[VariableId::new(99)]),
+            );
+
+            consume_result(out);
+        })
+    });
+
+    c.bench_function("unary_reduce_max_out_of_scope", |b| {
+        b.iter(|| {
+            let out = <UnaryFactor as FactorOps<LogMaxProduct>>::reduce(
+                black_box(f.clone()),
+                black_box(&[VariableId::new(99)]),
+            );
+
             consume_result(out);
         })
     });
