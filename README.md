@@ -34,29 +34,24 @@ A factor graph is a bipartite graphical model that expresses a global problem as
 
 Formally, a factor graph can be written as
 
-\[
-G = (V, \Phi, E)
-\]
+![Factor Graph](doc/img/factor_graph.svg)
 
 where:
 
-- \(V = \{X_1, X_2, \ldots, X_n\}\) is a set of **variable nodes**
+- <img src="https://latex.codecogs.com/svg.image?V%20=%20%5C%7BX_1,%20X_2,%20%5Cldots,%20X_n%5C%7D"
+style="vertical-align: middle;" width="160"> is a set of **variable nodes**
 
-- \(\Phi = \{\phi_1, \phi_2, \ldots, \phi_m\}\) is a set of **factor nodes**
+- <img src="https://latex.codecogs.com/svg.image?%5CPhi%20=%20%5C%7B%5Cphi_1,%20%5Cphi_2,%20%5Cldots,%20%5Cphi_m%5C%7D"
+style="vertical-align: middle;" width="160"> is a set of **factor nodes**
 
-- \(E \subseteq V \times \Phi\) is the set of **edges** connecting factors to the variables in their scopes
+- <img src="https://latex.codecogs.com/svg.image?E%20%5Csubseteq%20V%20%5Ctimes%20%5CPhi"
+style="vertical-align: middle;" width="90"> is the set of **edges** connecting factors to the variables in their scopes
 
 The graph structure indicates which variables participate in which local relationships. Together, those relationships define the global function:
 
-\[
-F(x_1, x_2, \ldots, x_n)
-=
-\prod_{j=1}^{m}
-\phi_j
-\left(
-x_{\mathrm{scope}(\phi_j)}
-\right)
-\]
+
+![Global function](doc/img/global_function.svg)
+
 
 
 This decomposition enables local computation and efficient propagation of information through the graph.
@@ -68,15 +63,9 @@ Each factor has a **scope**: the set of variables on which it depends.
 
 Conceptually, a factor can be written as
 
-\[
-\phi :
-\prod_{X_i \in \mathrm{scope}(\phi)}
-\mathcal{X}_i
-\rightarrow
-\mathcal{K}
-\]
+![Factor Definition](doc/img/factor_definition.svg)
 
-where \(\mathcal{K}\) is the value domain used by the inference system.
+where <img src="https://latex.codecogs.com/svg.image?\mathcal{K}" style="vertical-align: middle;" width="12">  is the value domain used by the inference system.
 
 Loopy is built around two fundamental factor operations:
 
@@ -109,44 +98,19 @@ Loopy belief propagation (LBP) is an iterative message‑passing algorithm used 
 In belief propagation, two kinds of messages are exchanged:
 
 - **Variable-to-factor** — summarizing a variable’s current belief based on all other connected factors.
+
+  ![Variable to Factor](doc/img/lbp_variable_to_factor.svg)
+
 - **Factor-to-variable** — summarizing how a factor constrains a variable, given the other variables in that factor.
 
-For a factor graph \(G = (V, \Phi, E)\), the messages take the form:
-
-- Variable to factor:
-  
-
-\[
-  m_{X \rightarrow \phi}(x)
-  = \prod_{\phi' \in \mathrm{nb}(X) \setminus \{\phi\}}
-    m_{\phi' \rightarrow X}(x)
-  \]
-
-
-
-- Factor to variable:
-  
-
-\[
-  m_{\phi \rightarrow X}(x)
-  = \sum_{\mathbf{x}_{\mathrm{scope}(\phi) \setminus X}}
-    \phi(\mathbf{x}_{\mathrm{scope}(\phi)})
-    \prod_{X' \in \mathrm{scope}(\phi) \setminus X}
-      m_{X' \rightarrow \phi}(x')
-  \]
+  ![Variable to Factor](doc/img/lbp_factor_to_variable.svg)
 
 
 
 These messages are updated repeatedly until they converge or until a fixed number of iterations is reached. Once messages stabilize, the approximate marginal distribution for a variable \(X\) is:
 
 
-
-\[
-\mathrm{bel}(X = x)
-= \prod_{\phi \in \mathrm{nb}(X)}
-  m_{\phi \rightarrow X}(x)
-\]
-
+![Belief](doc/img/lbp_belief.svg)
 
 
 Although LBP is not guaranteed to converge on graphs with cycles, it often produces stable and informative approximations in practice. Loopy provides a modular Rust implementation of these message‑passing rules, making it straightforward to explore different graph structures, factor definitions, and semiring choices.

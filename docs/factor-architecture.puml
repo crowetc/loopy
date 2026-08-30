@@ -1,0 +1,40 @@
+@startuml
+
+interface Factor {
+    +scope()
+    +ndim()
+}
+
+interface "FactorOps<S>" as FactorOps {
+    +reduce(vars)
+    +combine(other)
+}
+
+class DenseFactor
+class UnaryFactor
+class ScalarFactor
+
+interface Semiring
+
+class LogSumProduct
+class LogMaxProduct
+
+Factor <|.. DenseFactor
+Factor <|.. UnaryFactor
+Factor <|.. ScalarFactor
+
+Semiring <|.. LogSumProduct
+Semiring <|.. LogMaxProduct
+
+FactorOps ..> Semiring
+
+DenseFactor ..> FactorOps
+UnaryFactor ..> FactorOps
+ScalarFactor ..> FactorOps
+
+note right of FactorOps
+    A factor may implement
+    FactorOps for multiple S.
+end note
+
+@enduml
