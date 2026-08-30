@@ -34,7 +34,7 @@ A factor graph is a bipartite graphical model that expresses a global problem as
 
 Formally, a factor graph can be written as
 
-![Factor Graph](doc/img/factor_graph.svg)
+![Factor Graph](docs/img/factor_graph.svg)
 
 where:
 
@@ -50,7 +50,7 @@ style="vertical-align: middle;" width="90"> is the set of **edges** connecting f
 The graph structure indicates which variables participate in which local relationships. Together, those relationships define the global function:
 
 
-![Global function](doc/img/global_function.svg)
+![Global function](docs/img/global_function.svg)
 
 
 
@@ -63,7 +63,7 @@ Each factor has a **scope**: the set of variables on which it depends.
 
 Conceptually, a factor can be written as
 
-![Factor Definition](doc/img/factor_definition.svg)
+![Factor Definition](docs/img/factor_definition.svg)
 
 where <img src="https://latex.codecogs.com/svg.image?\mathcal{K}" style="vertical-align: middle;" width="12">  is the value domain used by the inference system.
 
@@ -99,18 +99,18 @@ In belief propagation, two kinds of messages are exchanged:
 
 - **Variable-to-factor** — summarizing a variable’s current belief based on all other connected factors.
 
-  ![Variable to Factor](doc/img/lbp_variable_to_factor.svg)
+  ![Variable to Factor](docs/img/lbp_variable_to_factor.svg)
 
 - **Factor-to-variable** — summarizing how a factor constrains a variable, given the other variables in that factor.
 
-  ![Variable to Factor](doc/img/lbp_factor_to_variable.svg)
+  ![Variable to Factor](docs/img/lbp_factor_to_variable.svg)
 
 
 
 These messages are updated repeatedly until they converge or until a fixed number of iterations is reached. Once messages stabilize, the approximate marginal distribution for a variable \(X\) is:
 
 
-![Belief](doc/img/lbp_belief.svg)
+![Belief](docs/img/lbp_belief.svg)
 
 
 Although LBP is not guaranteed to converge on graphs with cycles, it often produces stable and informative approximations in practice. Loopy provides a modular Rust implementation of these message‑passing rules, making it straightforward to explore different graph structures, factor definitions, and semiring choices.
