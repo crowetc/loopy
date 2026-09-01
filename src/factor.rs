@@ -9,7 +9,7 @@ mod log_utils;
 mod utils;
 
 pub use dense_factor::DenseFactor;
-pub use factor_graph::FactorGraph;
+pub use factor_graph::{FactorGraph, FactorId};
 pub use factor_kind::FactorKind;
 pub use scalar_factor::ScalarFactor;
 pub use unary_factor::UnaryFactor;

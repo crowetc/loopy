@@ -1,0 +1,29 @@
+use crate::factor::{UnaryFactor, VariableId};
+
+use super::Message;
+
+/// A message over a discrete variable.
+#[derive(Clone, Debug)]
+pub struct DiscreteMessage {
+    factor: UnaryFactor,
+}
+
+impl DiscreteMessage {
+    pub fn new(factor: UnaryFactor) -> Self {
+        Self { factor }
+    }
+
+    pub fn factor(&self) -> &UnaryFactor {
+        &self.factor
+    }
+
+    pub fn into_factor(self) -> UnaryFactor {
+        self.factor
+    }
+}
+
+impl Message for DiscreteMessage {
+    fn variable(&self) -> VariableId {
+        self.factor.var()
+    }
+}
