@@ -1,9 +1,11 @@
 pub mod directed_edge;
-pub mod discrete;
+pub mod discrete_message;
+pub mod message_kind;
 pub mod store;
 
-pub use directed_edge::DirectedEdge;
-pub use discrete::DiscreteMessage;
+pub use directed_edge::{DirectedEdge, Endpoint};
+pub use discrete_message::DiscreteMessage;
+pub use message_kind::MessageKind;
 pub use store::MessageStore;
 
 use crate::factor::VariableId;

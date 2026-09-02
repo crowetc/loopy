@@ -1,3 +1,16 @@
+//! Core data structures for representing factor graphs.
+//!
+//! A `FactorGraph` is a bipartite structure containing variable nodes and
+//! factor nodes. Variables represent unknown quantities; factors represent
+//! local functions over subsets of variables. The graph stores connectivity
+//! explicitly and provides stable identifiers (`VariableId`, `FactorId`) for
+//! referencing nodes throughout inference algorithms.
+//!
+//! # Invariants
+//! - Variables have unique names.
+//! - `VariableId` and `FactorId` are stable indices.
+//! - Factors may only reference variables already present in the graph.
+//! - Graph connectivity is explicit and never implicitly modified.
 use std::collections::HashMap;
 
 use super::{Factor, FactorKind, Variable, VariableId};
@@ -60,7 +73,7 @@ impl FactorNode {
 pub struct FactorId(usize);
 
 impl FactorId {
-    fn new(index: usize) -> Self {
+    pub(crate) fn new(index: usize) -> Self {
         Self(index)
     }
 
@@ -206,6 +219,10 @@ pub enum GraphError {
     /// A factor references a variable that does not belong to this graph.
     UnknownVariableId(VariableId),
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
