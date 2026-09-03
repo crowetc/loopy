@@ -17,7 +17,11 @@ use super::{Factor, FactorKind, Variable, VariableId};
 
 /// A node representing a variable in a [`FactorGraph`].
 ///
-/// The node stores the variable itself and the factors connected to it.
+/// The node stores the variable itself and the factors whose scopes contain
+/// that variable.
+///
+/// The factors are stored in the order in which they were added to the
+/// graph.
 #[derive(Clone, Debug)]
 pub struct VariableNode {
     variable: Variable,
@@ -45,8 +49,10 @@ impl VariableNode {
 
 /// A node representing a factor in a [`FactorGraph`].
 ///
-/// The node stores the factor and exposes the variables in its scope as
-/// its neighboring variable nodes.
+/// The node stores the factor and exposes the variables in its scope as its
+/// neighboring variable nodes.
+///
+/// The scope ordering is preserved from the underlying factor.
 #[derive(Clone, Debug)]
 pub struct FactorNode {
     factor: FactorKind,
@@ -83,9 +89,14 @@ impl FactorId {
     }
 }
 
-/// A factor graph is a bipartite graphical model that decomposes a global
-/// function into a collection of local functions (factors) over subsets of
-/// variables.
+/// A bipartite graph representing a factorization of a global function.
+///
+/// A factor graph consists of variable nodes and factor nodes. Each factor
+/// connects to the variables in its scope, representing a local function over
+/// those variables.
+///
+/// The graph maintains connectivity between variables and factors and assigns
+/// each node a stable identifier for use by graph algorithms.
 #[derive(Clone, Debug)]
 pub struct FactorGraph {
     variables: Vec<VariableNode>,
@@ -160,7 +171,11 @@ impl FactorGraph {
 
     /// Add a factor to the graph.
     ///
-    /// Every variable in the factor's scope must belong to this graph.
+    /// Every variable in the factor's scope must belong to this graph. When the
+    /// factor is added, its ID is recorded in the adjacency list of each
+    /// variable in its scope.
+    ///
+    /// The order of the variables in the factor's scope is preserved.
     ///
     /// # Errors
     ///
