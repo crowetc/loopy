@@ -230,10 +230,6 @@ mod tests {
     use crate::factor::{DenseFactor, UnaryFactor};
     use ndarray::array;
 
-    fn v(id: usize) -> VariableId {
-        VariableId::new(id)
-    }
-
     #[test]
     fn new_graph_is_empty() {
         let graph = FactorGraph::new();
