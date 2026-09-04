@@ -60,6 +60,9 @@ impl MessageStore {
     ///
     /// Each directed edge receives an associated message slot initialized to
     /// [`MessageKind::Empty`].
+    ///
+    /// The adjacency indices are populated in the same order as the graph's
+    /// factor scopes and variable factor-adjacency lists.
     pub fn from_graph(graph: &FactorGraph) -> Self {
         let message_count: usize = graph
             .factors()
@@ -71,8 +74,8 @@ impl MessageStore {
             messages: Vec::with_capacity(message_count),
             edges: Vec::with_capacity(message_count),
 
-            variable_out: Vec::new(),
-            variable_in: Vec::new(),
+            variable_out: vec![Vec::new(); graph.variables().len()],
+            variable_in: vec![Vec::new(); graph.variables().len()],
 
             factor_out: vec![Vec::new(); graph.factors().len()],
             factor_in: vec![Vec::new(); graph.factors().len()],
@@ -348,5 +351,70 @@ mod tests {
                 DirectedEdge::variable_to_factor(variable, f)
             );
         }
+    }
+
+    #[test]
+    fn variable_adjacency_order_matches_multiple_factors() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let y = graph.add_variable(Variable::new("y")).unwrap();
+
+        let f0 = FactorKind::Dense(DenseFactor::new(
+            vec![x, y],
+            array![[1.0, 2.0], [3.0, 4.0]].into_dyn(),
+        ));
+
+        let f1 = FactorKind::Dense(DenseFactor::new(vec![x], array![5.0, 6.0].into_dyn()));
+
+        let f0 = graph.add_factor(f0).unwrap();
+        let f1 = graph.add_factor(f1).unwrap();
+
+        let store = MessageStore::from_graph(&graph);
+
+        let factors = graph.variable_node(x).unwrap().factors();
+
+        assert_eq!(factors, &[f0, f1]);
+
+        let variable_out = store.variable_out(x);
+        let variable_in = store.variable_in(x);
+
+        assert_eq!(variable_out.len(), 2);
+        assert_eq!(variable_in.len(), 2);
+
+        for (i, &factor) in factors.iter().enumerate() {
+            assert_eq!(
+                store.edge(variable_out[i]),
+                DirectedEdge::variable_to_factor(x, factor)
+            );
+
+            assert_eq!(
+                store.edge(variable_in[i]),
+                DirectedEdge::factor_to_variable(factor, x)
+            );
+        }
+
+        // y is connected only to f0.
+        assert_eq!(
+            store.edge(store.variable_out(y)[0]),
+            DirectedEdge::variable_to_factor(y, f0)
+        );
+
+        assert_eq!(
+            store.edge(store.variable_in(y)[0]),
+            DirectedEdge::factor_to_variable(f0, y)
+        );
+    }
+
+    #[test]
+    fn isolated_variable_has_no_messages() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(Variable::new("x")).unwrap();
+
+        let store = MessageStore::from_graph(&graph);
+
+        assert!(store.variable_in(x).is_empty());
+        assert!(store.variable_out(x).is_empty());
     }
 }

@@ -10,15 +10,14 @@
 //! discrete factor over a single discrete variable.
 //!
 //! [`FactorOps`] defines algebraic operations on factors, parameterized by a
-//! [`Semiring`]. This allows multiple forms of the reduction and combination
-//! operations to be defined for a factor to support different inference problems.
+//! [`Semiring`]. This allows for multiple forms of the reduction and combination
+//! operations to be defined on a factor to support different inference problems.
 //!
 //! [`DiscreteFactor`] identifies factors whose variables are discrete and have
 //! finite cardinalities.
 //!
 //! The module also contains [`FactorGraph`], which represents the structure
 //! connecting variables and factors.
-
 
 pub mod dense_factor;
 pub mod factor_graph;
