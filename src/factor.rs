@@ -20,7 +20,6 @@
 //! connecting variables and factors.
 
 pub mod dense_factor;
-pub mod factor_graph;
 pub mod factor_kind;
 pub mod scalar_factor;
 pub mod unary_factor;
@@ -29,13 +28,27 @@ mod log_utils;
 mod utils;
 
 pub use dense_factor::DenseFactor;
-pub use factor_graph::{FactorGraph, FactorId, GraphError};
 pub use factor_kind::FactorKind;
 pub use scalar_factor::ScalarFactor;
 pub use unary_factor::UnaryFactor;
 
 pub use crate::semiring::{LogMaxProduct, LogSumProduct, Semiring};
 use crate::variable::VariableId;
+
+/// An identifier for a factor within a [`FactorGraph`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FactorId(usize);
+
+impl FactorId {
+    pub(crate) fn new(index: usize) -> Self {
+        Self(index)
+    }
+
+    /// Return the index underlying this identifier.
+    pub fn index(self) -> usize {
+        self.0
+    }
+}
 
 /// A factor in the sense used in probabilistic graphical models.
 ///

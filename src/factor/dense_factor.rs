@@ -4,8 +4,8 @@
 //! - a `scope`: variable IDs
 //! - a dense `ndarray::ArrayD<f64>` data containing log-potentials
 
-use std::f64;
 use ndarray::{ArrayD, IxDyn};
+use std::f64;
 
 use crate::semiring::{LogMaxProduct, LogSumProduct};
 use crate::variable::VariableId;

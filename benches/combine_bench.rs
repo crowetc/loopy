@@ -1,7 +1,9 @@
-use criterion::{Criterion, criterion_group, criterion_main};
-use loopy::factor::{DenseFactor, FactorKind, FactorOps, LogSumProduct, UnaryFactor, VariableId};
-use ndarray::{ArrayD, IxDyn};
 use std::hint::black_box;
+use ndarray::{ArrayD, IxDyn};
+use criterion::{Criterion, criterion_group, criterion_main};
+use loopy::factor::{DenseFactor, FactorKind, FactorOps, UnaryFactor};
+use loopy::semiring::LogSumProduct;
+use loopy::variable::VariableId;
 
 fn consume_result(out: FactorKind) {
     match out {

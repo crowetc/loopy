@@ -13,8 +13,8 @@
 //! - Graph connectivity is explicit and never implicitly modified.
 use std::collections::HashMap;
 
+use crate::factor::{Factor, FactorId, FactorKind};
 use crate::variable::{Variable, VariableId};
-use super::{Factor, FactorKind};
 
 /// A node representing a variable in a [`FactorGraph`].
 ///
@@ -72,21 +72,6 @@ impl FactorNode {
     /// Return the variables connected to this factor.
     pub fn scope(&self) -> &[VariableId] {
         self.factor.scope()
-    }
-}
-
-/// An identifier for a factor within a [`FactorGraph`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct FactorId(usize);
-
-impl FactorId {
-    pub(crate) fn new(index: usize) -> Self {
-        Self(index)
-    }
-
-    /// Return the index underlying this identifier.
-    pub fn index(self) -> usize {
-        self.0
     }
 }
 

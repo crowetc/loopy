@@ -1,4 +1,5 @@
-use crate::factor::{Factor, FactorGraph, FactorId, FactorKind, GraphError};
+use crate::factor::{Factor, FactorId, FactorKind};
+use crate::factor_graph::{FactorGraph, GraphError};
 use crate::message::MessageStore;
 use crate::variable::{Variable, VariableId};
 
