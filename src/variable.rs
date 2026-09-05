@@ -7,11 +7,11 @@
 //! The current implementation supports finite discrete domains through
 //! [`DiscreteDomain`].
 
+use std::fmt;
+
 mod discrete_domain;
 
 pub use discrete_domain::DiscreteDomain;
-
-use std::fmt;
 
 /// A graph-local identifier for a variable.
 ///

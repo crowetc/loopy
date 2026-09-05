@@ -5,10 +5,11 @@
 //! - `data`: log-potentials for each domain element
 use ndarray::{ArrayD, IxDyn};
 
+use crate::semiring::{LogMaxProduct, LogSumProduct};
+use crate::variable::VariableId;
+
 use super::log_utils::lse_two_pass;
 use super::{DenseFactor, DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor};
-use super::{LogMaxProduct, LogSumProduct};
-use crate::variable::VariableId;
 
 /// A unary factor over a single discrete variable (log-space).
 ///

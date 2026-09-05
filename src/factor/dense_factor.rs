@@ -4,12 +4,14 @@
 //! - a `scope`: variable IDs
 //! - a dense `ndarray::ArrayD<f64>` data containing log-potentials
 
+use std::f64;
+use ndarray::{ArrayD, IxDyn};
+
+use crate::semiring::{LogMaxProduct, LogSumProduct};
+use crate::variable::VariableId;
+
 use super::log_utils::{lse_finalize, lse_update};
 use super::{DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor, UnaryFactor};
-use super::{LogMaxProduct, LogSumProduct};
-use crate::variable::VariableId;
-use ndarray::{ArrayD, IxDyn};
-use std::f64;
 
 /// Dense table-based factor over discrete variables (log-space).
 #[derive(Clone, Debug)]

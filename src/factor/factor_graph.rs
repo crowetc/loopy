@@ -13,8 +13,8 @@
 //! - Graph connectivity is explicit and never implicitly modified.
 use std::collections::HashMap;
 
-use super::{Factor, FactorKind};
 use crate::variable::{Variable, VariableId};
+use super::{Factor, FactorKind};
 
 /// A node representing a variable in a [`FactorGraph`].
 ///

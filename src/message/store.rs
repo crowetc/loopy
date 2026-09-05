@@ -1,6 +1,6 @@
-use super::{DirectedEdge, Endpoint, Message, MessageId};
 use crate::factor::{FactorGraph, FactorId};
 use crate::variable::VariableId;
+use super::{DirectedEdge, Endpoint, Message, MessageId};
 
 /// Storage for messages associated with the directed edges of a factor graph.
 ///

@@ -1,6 +1,7 @@
-use super::Semiring;
-use super::{DenseFactor, Factor, FactorOps, ScalarFactor, UnaryFactor};
+use crate::semiring::Semiring;
 use crate::variable::VariableId;
+
+use super::{DenseFactor, Factor, FactorOps, ScalarFactor, UnaryFactor};
 
 /// A concrete factor representation supported by the library.
 ///
