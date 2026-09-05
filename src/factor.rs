@@ -30,7 +30,7 @@ mod log_utils;
 mod utils;
 
 pub use dense_factor::DenseFactor;
-pub use factor_graph::{FactorGraph, FactorId};
+pub use factor_graph::{FactorGraph, FactorId, GraphError};
 pub use factor_kind::FactorKind;
 pub use scalar_factor::ScalarFactor;
 pub use unary_factor::UnaryFactor;
@@ -55,14 +55,15 @@ pub trait Factor {
     }
 }
 
-/// Operations supported by a factor under a particular semiring.
+/// Operations supported by a factor under a particular inference regime.
 ///
-/// The semiring determines how factors are combined and marginalized.
-/// For example, [`LogSumProduct`] performs sum-product operations in
-/// log-space, while [`LogMaxProduct`] performs max-product operations.
+/// The semiring identifies the inference regime under which the operations
+/// are performed. Factor implementations provide the concrete behavior for
+/// each supported semiring.
 ///
-/// Implementations consume `self` because factor operations generally
-/// construct a new factor rather than modifying the existing one.
+/// For example, [`LogSumProduct`] represents sum-product inference in
+/// log-space, while [`LogMaxProduct`] represents max-product inference in
+/// log-space.
 pub trait FactorOps<S: Semiring>: Factor {
     /// Reduce the factor by eliminating the given variables.
     fn reduce(self, vars: &[VariableId]) -> FactorKind;

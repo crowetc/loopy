@@ -11,20 +11,20 @@ pub enum Endpoint {
 ///
 /// Each graph edge has two possible message directions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct DirectedEdge {
-    pub from: Endpoint,
-    pub to: Endpoint,
+pub(crate) struct DirectedEdge {
+    pub(crate) from: Endpoint,
+    pub(crate) to: Endpoint,
 }
 
 impl DirectedEdge {
-    pub fn variable_to_factor(variable: VariableId, factor: FactorId) -> Self {
+    pub(crate) fn variable_to_factor(variable: VariableId, factor: FactorId) -> Self {
         Self {
             from: Endpoint::Variable(variable),
             to: Endpoint::Factor(factor),
         }
     }
 
-    pub fn factor_to_variable(factor: FactorId, variable: VariableId) -> Self {
+    pub(crate) fn factor_to_variable(factor: FactorId, variable: VariableId) -> Self {
         Self {
             from: Endpoint::Factor(factor),
             to: Endpoint::Variable(variable),

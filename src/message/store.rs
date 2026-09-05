@@ -26,7 +26,8 @@ use crate::factor::{FactorGraph, FactorId, VariableId};
 /// This positional correspondence allows message-passing algorithms to
 /// associate messages with neighboring nodes without performing additional
 /// topology lookups.
-pub struct MessageStore {
+#[derive(Debug)]
+pub(crate) struct MessageStore {
     messages: Vec<MessageKind>,
     edges: Vec<DirectedEdge>,
 
@@ -38,10 +39,14 @@ pub struct MessageStore {
 }
 
 impl MessageStore {
+    //
+    // Construction
+    //
+
     /// Creates an empty message store.
     ///
     /// The returned store contains no messages or directed edges.
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             messages: Vec::new(),
             edges: Vec::new(),
@@ -63,7 +68,7 @@ impl MessageStore {
     ///
     /// The adjacency indices are populated in the same order as the graph's
     /// factor scopes and variable factor-adjacency lists.
-    pub fn from_graph(graph: &FactorGraph) -> Self {
+    pub(crate) fn from_graph(graph: &FactorGraph) -> Self {
         let message_count: usize = graph
             .factors()
             .iter()
@@ -73,36 +78,115 @@ impl MessageStore {
         let mut store = Self {
             messages: Vec::with_capacity(message_count),
             edges: Vec::with_capacity(message_count),
-
             variable_out: vec![Vec::new(); graph.variables().len()],
             variable_in: vec![Vec::new(); graph.variables().len()],
-
             factor_out: vec![Vec::new(); graph.factors().len()],
             factor_in: vec![Vec::new(); graph.factors().len()],
         };
 
+        for variable_index in 0..graph.variables().len() {
+            store.add_variable(VariableId::new(variable_index));
+        }
+
         for (factor_index, factor_node) in graph.factors().iter().enumerate() {
-            let factor_id = FactorId::new(factor_index);
-
-            for &variable_id in factor_node.scope() {
-                store.add(DirectedEdge::variable_to_factor(variable_id, factor_id));
-
-                store.add(DirectedEdge::factor_to_variable(factor_id, variable_id));
-            }
+            store.add_factor(FactorId::new(factor_index), factor_node.scope());
         }
 
         store
     }
 
-    /// Returns the number of message slots in the store.
-    pub fn len(&self) -> usize {
-        self.messages.len()
+    //
+    // Topology
+    //
+
+    /// Extends adjacency storage for a newly added variable.
+    pub(crate) fn add_variable(&mut self, variable: VariableId) {
+        self.ensure_variable(variable.index());
     }
 
-    /// Returns `true` if the store contains no message slots.
-    pub fn is_empty(&self) -> bool {
-        self.messages.is_empty()
+    /// Adds message slots for a newly added factor.
+    ///
+    /// One message is created in each direction for every variable in `scope`.
+    /// The order of the messages matches the order of variables in `scope`.
+    pub(crate) fn add_factor(&mut self, factor: FactorId, scope: &[VariableId]) {
+        self.ensure_factor(factor.index());
+
+        for &variable in scope {
+            self.add(DirectedEdge::variable_to_factor(variable, factor));
+            self.add(DirectedEdge::factor_to_variable(factor, variable));
+        }
     }
+
+    //
+    // Messages
+    //
+
+    /// Returns the directed edge associated with `id`.
+    pub(crate) fn edge(&self, id: MessageId) -> DirectedEdge {
+        self.edges[id.index()]
+    }
+
+    /// Returns the message associated with `id`.
+    pub(crate) fn get(&self, id: MessageId) -> &MessageKind {
+        &self.messages[id.index()]
+    }
+
+    /// Returns a mutable reference to the message associated with `id`.
+    pub(crate) fn get_mut(&mut self, id: MessageId) -> &mut MessageKind {
+        &mut self.messages[id.index()]
+    }
+
+    //
+    // Adjacency
+    //
+
+    /// Returns the messages directed from `variable` to neighboring factors.
+    ///
+    /// The returned slice contains the [`MessageId`] for every message whose
+    /// source is `variable`.
+    pub(crate) fn variable_out(&self, variable: VariableId) -> &[MessageId] {
+        self.variable_out
+            .get(variable.index())
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// Returns the messages directed to `variable` from neighboring factors.
+    ///
+    /// The returned slice contains the [`MessageId`] for every message whose
+    /// destination is `variable`.
+    pub(crate) fn variable_in(&self, variable: VariableId) -> &[MessageId] {
+        self.variable_in
+            .get(variable.index())
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// Returns the messages directed from `factor` to neighboring variables.
+    ///
+    /// The returned slice contains the [`MessageId`] for every message whose
+    /// source is `factor`.
+    pub(crate) fn factor_out(&self, factor: FactorId) -> &[MessageId] {
+        self.factor_out
+            .get(factor.index())
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// Returns the messages directed to `factor` from neighboring variables.
+    ///
+    /// The returned slice contains the [`MessageId`] for every message whose
+    /// destination is `factor`.
+    pub(crate) fn factor_in(&self, factor: FactorId) -> &[MessageId] {
+        self.factor_in
+            .get(factor.index())
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    //
+    // Internal Helpers
+    //
 
     /// Adds a directed edge to the store.
     ///
@@ -111,7 +195,7 @@ impl MessageStore {
     /// The appropriate incoming and outgoing adjacency indices are also updated.
     ///
     /// Returns the [`MessageId`] assigned to the new edge's message slot.
-    pub fn add(&mut self, edge: DirectedEdge) -> MessageId {
+    fn add(&mut self, edge: DirectedEdge) -> MessageId {
         let id = MessageId::new(self.messages.len());
 
         self.edges.push(edge);
@@ -138,65 +222,6 @@ impl MessageStore {
         id
     }
 
-    /// Returns the directed edge associated with `id`.
-    pub fn edge(&self, id: MessageId) -> DirectedEdge {
-        self.edges[id.index()]
-    }
-
-    /// Returns the message associated with `id`.
-    pub fn get(&self, id: MessageId) -> &MessageKind {
-        &self.messages[id.index()]
-    }
-
-    /// Returns a mutable reference to the message associated with `id`.
-    pub fn get_mut(&mut self, id: MessageId) -> &mut MessageKind {
-        &mut self.messages[id.index()]
-    }
-
-    /// Returns the messages directed from `variable` to neighboring factors.
-    ///
-    /// The returned slice contains the [`MessageId`] for every message whose
-    /// source is `variable`.
-    pub fn variable_out(&self, variable: VariableId) -> &[MessageId] {
-        self.variable_out
-            .get(variable.index())
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
-
-    /// Returns the messages directed to `variable` from neighboring factors.
-    ///
-    /// The returned slice contains the [`MessageId`] for every message whose
-    /// destination is `variable`.
-    pub fn variable_in(&self, variable: VariableId) -> &[MessageId] {
-        self.variable_in
-            .get(variable.index())
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
-
-    /// Returns the messages directed from `factor` to neighboring variables.
-    ///
-    /// The returned slice contains the [`MessageId`] for every message whose
-    /// source is `factor`.
-    pub fn factor_out(&self, factor: FactorId) -> &[MessageId] {
-        self.factor_out
-            .get(factor.index())
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
-
-    /// Returns the messages directed to `factor` from neighboring variables.
-    ///
-    /// The returned slice contains the [`MessageId`] for every message whose
-    /// destination is `factor`.
-    pub fn factor_in(&self, factor: FactorId) -> &[MessageId] {
-        self.factor_in
-            .get(factor.index())
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
-
     /// Ensures adjacency storage exists for `index`.
     fn ensure_variable(&mut self, index: usize) {
         let required_len = index + 1;
@@ -215,6 +240,18 @@ impl MessageStore {
             self.factor_out.resize_with(required_len, Vec::new);
             self.factor_in.resize_with(required_len, Vec::new);
         }
+    }
+
+    /// Returns the number of message slots in the store.
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.messages.len()
+    }
+
+    /// Returns `true` if the store contains no message slots.
+    #[cfg(test)]
+    fn is_empty(&self) -> bool {
+        self.messages.is_empty()
     }
 }
 

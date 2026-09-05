@@ -1,24 +1,24 @@
-pub mod directed_edge;
-pub mod discrete_message;
-pub mod message_kind;
-pub mod store;
+pub(crate) mod directed_edge;
+pub(crate) mod discrete_message;
+pub(crate) mod message_kind;
+pub(crate) mod store;
 
-pub use directed_edge::{DirectedEdge, Endpoint};
-pub use discrete_message::DiscreteMessage;
-pub use message_kind::MessageKind;
-pub use store::MessageStore;
+pub(crate) use directed_edge::{DirectedEdge, Endpoint};
+pub(crate) use discrete_message::DiscreteMessage;
+pub(crate) use message_kind::MessageKind;
+pub(crate) use store::MessageStore;
 
 use crate::factor::VariableId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct MessageId(usize);
+pub(crate) struct MessageId(usize);
 
 impl MessageId {
     pub(crate) fn new(index: usize) -> Self {
         Self(index)
     }
 
-    pub fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         self.0
     }
 }
@@ -28,7 +28,7 @@ impl MessageId {
 /// A message represents information about a single variable, but the
 /// concrete representation depends on the factor family and inference
 /// algorithm.
-pub trait Message: Send + Sync {
+pub(crate) trait Message: Send + Sync {
     /// The variable represented by this message.
     fn variable(&self) -> VariableId;
 }

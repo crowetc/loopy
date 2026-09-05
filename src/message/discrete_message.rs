@@ -4,20 +4,20 @@ use super::Message;
 
 /// A message over a discrete variable.
 #[derive(Clone, Debug)]
-pub struct DiscreteMessage {
+pub(crate) struct DiscreteMessage {
     factor: UnaryFactor,
 }
 
 impl DiscreteMessage {
-    pub fn new(factor: UnaryFactor) -> Self {
+    pub(crate) fn new(factor: UnaryFactor) -> Self {
         Self { factor }
     }
 
-    pub fn factor(&self) -> &UnaryFactor {
+    pub(crate) fn factor(&self) -> &UnaryFactor {
         &self.factor
     }
 
-    pub fn into_factor(self) -> UnaryFactor {
+    pub(crate) fn into_factor(self) -> UnaryFactor {
         self.factor
     }
 }
