@@ -24,7 +24,6 @@ pub mod factor_graph;
 pub mod factor_kind;
 pub mod scalar_factor;
 pub mod unary_factor;
-pub mod variable;
 
 mod log_utils;
 mod utils;
@@ -34,9 +33,9 @@ pub use factor_graph::{FactorGraph, FactorId, GraphError};
 pub use factor_kind::FactorKind;
 pub use scalar_factor::ScalarFactor;
 pub use unary_factor::UnaryFactor;
-pub use variable::{Variable, VariableId};
 
 pub use crate::semiring::{LogMaxProduct, LogSumProduct, Semiring};
+use crate::variable::VariableId;
 
 /// A factor in the sense used in probabilistic graphical models.
 ///

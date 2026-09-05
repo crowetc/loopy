@@ -13,7 +13,8 @@
 //! - Graph connectivity is explicit and never implicitly modified.
 use std::collections::HashMap;
 
-use super::{Factor, FactorKind, Variable, VariableId};
+use super::{Factor, FactorKind};
+use crate::variable::{Variable, VariableId};
 
 /// A node representing a variable in a [`FactorGraph`].
 ///
@@ -259,7 +260,9 @@ mod tests {
     fn add_variable_creates_variable_node() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
 
         let node = graph.variable_node(x).unwrap();
 
@@ -271,7 +274,9 @@ mod tests {
     fn add_variable_returns_id() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
 
         assert_eq!(x.index(), 0);
         assert_eq!(graph.num_variables(), 1);
@@ -281,7 +286,9 @@ mod tests {
     fn variable_can_be_retrieved_by_id() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
 
         let variable = graph.variable(x).unwrap();
 
@@ -292,7 +299,9 @@ mod tests {
     fn variable_node_can_be_retrieved_by_id() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
 
         let node = graph.variable_node(x).unwrap();
 
@@ -304,7 +313,9 @@ mod tests {
     fn variable_id_can_be_looked_up_by_name() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
 
         assert_eq!(graph.variable_id("x"), Some(x));
         assert_eq!(graph.variable_id("y"), None);
@@ -330,9 +341,17 @@ mod tests {
     fn variable_ids_correspond_to_storage_order() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
-        let y = graph.add_variable(Variable::new("y")).unwrap();
-        let z = graph.add_variable(Variable::new("z")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
+
+        let y = graph
+            .add_variable(Variable::discrete("y", ["0", "1"]))
+            .unwrap();
+
+        let z = graph
+            .add_variable(Variable::discrete("z", ["0", "1"]))
+            .unwrap();
 
         assert_eq!(x.index(), 0);
         assert_eq!(y.index(), 1);
@@ -347,9 +366,11 @@ mod tests {
     fn variable_names_must_be_unique() {
         let mut graph = FactorGraph::new();
 
-        graph.add_variable(Variable::new("x")).unwrap();
+        graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
 
-        let result = graph.add_variable(Variable::new("x"));
+        let result = graph.add_variable(Variable::discrete("x", ["0", "1"]));
 
         assert_eq!(
             result,
@@ -361,8 +382,13 @@ mod tests {
     fn different_variables_get_different_ids() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
-        let y = graph.add_variable(Variable::new("y")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
+
+        let y = graph
+            .add_variable(Variable::discrete("y", ["0", "1"]))
+            .unwrap();
 
         assert_ne!(x, y);
     }
@@ -371,7 +397,9 @@ mod tests {
     fn factor_scope_must_contain_known_variables() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
 
         let factor = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 1.0]));
 
@@ -405,7 +433,9 @@ mod tests {
     fn add_factor_creates_factor_node() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
         let factor = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 1.0]));
 
         let id = graph.add_factor(factor).unwrap();
@@ -419,7 +449,9 @@ mod tests {
     fn factor_can_be_retrieved_after_adding() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
         let factor = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 1.0]));
 
         let id = graph.add_factor(factor).unwrap();
@@ -432,8 +464,13 @@ mod tests {
     fn factor_id_corresponds_to_storage_order() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
-        let y = graph.add_variable(Variable::new("y")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
+
+        let y = graph
+            .add_variable(Variable::discrete("y", ["0", "1"]))
+            .unwrap();
 
         let f = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 1.0]));
         let g = FactorKind::Unary(UnaryFactor::new(y, vec![0.0, 1.0]));
@@ -462,9 +499,17 @@ mod tests {
     fn factor_is_added_to_each_variable_in_its_scope() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
-        let y = graph.add_variable(Variable::new("y")).unwrap();
-        let z = graph.add_variable(Variable::new("z")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
+
+        let y = graph
+            .add_variable(Variable::discrete("y", ["0", "1"]))
+            .unwrap();
+
+        let z = graph
+            .add_variable(Variable::discrete("z", ["0", "1"]))
+            .unwrap();
 
         let factor = FactorKind::Dense(DenseFactor::new(
             vec![x, y, z],
@@ -482,9 +527,17 @@ mod tests {
     fn variable_not_in_factor_scope_is_not_connected() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
-        let y = graph.add_variable(Variable::new("y")).unwrap();
-        let z = graph.add_variable(Variable::new("z")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
+
+        let y = graph
+            .add_variable(Variable::discrete("y", ["0", "1"]))
+            .unwrap();
+
+        let z = graph
+            .add_variable(Variable::discrete("z", ["0", "1"]))
+            .unwrap();
 
         let factor = FactorKind::Dense(DenseFactor::new(
             vec![x, y],
@@ -502,7 +555,9 @@ mod tests {
     fn variable_node_contains_connected_factor() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
 
         let factor = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 1.0]));
         let factor_id = graph.add_factor(factor).unwrap();
@@ -516,7 +571,9 @@ mod tests {
     fn variable_node_contains_factors_in_addition_order() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
 
         let f = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 1.0]));
         let g = FactorKind::Unary(UnaryFactor::new(x, vec![1.0, 0.0]));
@@ -533,7 +590,9 @@ mod tests {
     fn factor_node_scope_matches_factor_scope() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
 
         let factor = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 1.0]));
         let id = graph.add_factor(factor).unwrap();
@@ -547,9 +606,17 @@ mod tests {
     fn factor_node_exposes_multivariable_scope() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
-        let y = graph.add_variable(Variable::new("y")).unwrap();
-        let z = graph.add_variable(Variable::new("z")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
+
+        let y = graph
+            .add_variable(Variable::discrete("y", ["0", "1"]))
+            .unwrap();
+
+        let z = graph
+            .add_variable(Variable::discrete("z", ["0", "1"]))
+            .unwrap();
 
         let factor = FactorKind::Dense(DenseFactor::new(
             vec![x, y, z],

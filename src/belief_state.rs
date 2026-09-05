@@ -1,5 +1,6 @@
-use crate::factor::{Factor, FactorGraph, FactorId, FactorKind, GraphError, Variable, VariableId};
+use crate::factor::{Factor, FactorGraph, FactorId, FactorKind, GraphError};
 use crate::message::MessageStore;
+use crate::variable::{Variable, VariableId};
 
 #[derive(Debug)]
 pub struct BeliefState {
@@ -69,8 +70,13 @@ mod tests {
     fn from_graph_builds_message_state() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
-        let y = graph.add_variable(Variable::new("y")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
+
+        let y = graph
+            .add_variable(Variable::discrete("y", ["0", "1"]))
+            .unwrap();
 
         let factor = FactorKind::Dense(DenseFactor::new(
             vec![x, y],
@@ -90,7 +96,7 @@ mod tests {
         let graph = FactorGraph::new();
         let mut state = BeliefState::from_graph(graph);
 
-        let x = state.extend(Variable::new("x")).unwrap();
+        let x = state.extend(Variable::discrete("x", ["0", "1"])).unwrap();
 
         assert!(state.messages().variable_in(x).is_empty());
         assert!(state.messages().variable_out(x).is_empty());
@@ -100,8 +106,13 @@ mod tests {
     fn apply_adds_factor_messages() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
-        let y = graph.add_variable(Variable::new("y")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
+
+        let y = graph
+            .add_variable(Variable::discrete("y", ["0", "1"]))
+            .unwrap();
 
         let mut state = BeliefState::from_graph(graph);
 

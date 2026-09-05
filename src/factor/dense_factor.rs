@@ -5,8 +5,9 @@
 //! - a dense `ndarray::ArrayD<f64>` data containing log-potentials
 
 use super::log_utils::{lse_finalize, lse_update};
-use super::{DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor, UnaryFactor, VariableId};
+use super::{DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor, UnaryFactor};
 use super::{LogMaxProduct, LogSumProduct};
+use crate::variable::VariableId;
 use ndarray::{ArrayD, IxDyn};
 use std::f64;
 

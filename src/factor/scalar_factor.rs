@@ -3,8 +3,9 @@
 //! A `ScalarFactor` stores:
 //! - `value`: a single log-potential
 
-use super::{DenseFactor, Factor, FactorKind, FactorOps, UnaryFactor, VariableId};
+use super::{DenseFactor, Factor, FactorKind, FactorOps, UnaryFactor};
 use super::{LogMaxProduct, LogSumProduct};
+use crate::variable::VariableId;
 
 /// A scalar factor (log-space).
 ///

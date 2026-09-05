@@ -1,5 +1,6 @@
 use super::{DirectedEdge, Endpoint, Message, MessageId};
-use crate::factor::{FactorGraph, FactorId, VariableId};
+use crate::factor::{FactorGraph, FactorId};
+use crate::variable::VariableId;
 
 /// Storage for messages associated with the directed edges of a factor graph.
 ///
@@ -272,7 +273,8 @@ impl MessageStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::factor::{DenseFactor, FactorKind, Variable, VariableId};
+    use crate::factor::{DenseFactor, FactorKind};
+    use crate::variable::{Variable, VariableId};
     use ndarray::array;
 
     #[test]
@@ -347,9 +349,17 @@ mod tests {
     fn adjacency_order_matches_graph_topology() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
-        let y = graph.add_variable(Variable::new("y")).unwrap();
-        let z = graph.add_variable(Variable::new("z")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
+
+        let y = graph
+            .add_variable(Variable::discrete("y", ["0", "1"]))
+            .unwrap();
+
+        let z = graph
+            .add_variable(Variable::discrete("z", ["0", "1"]))
+            .unwrap();
 
         let factor = FactorKind::Dense(DenseFactor::new(
             vec![x, y, z],
@@ -404,8 +414,13 @@ mod tests {
     fn variable_adjacency_order_matches_multiple_factors() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
-        let y = graph.add_variable(Variable::new("y")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
+
+        let y = graph
+            .add_variable(Variable::discrete("y", ["0", "1"]))
+            .unwrap();
 
         let f0 = FactorKind::Dense(DenseFactor::new(
             vec![x, y],
@@ -457,7 +472,9 @@ mod tests {
     fn isolated_variable_has_no_messages() {
         let mut graph = FactorGraph::new();
 
-        let x = graph.add_variable(Variable::new("x")).unwrap();
+        let x = graph
+            .add_variable(Variable::discrete("x", ["0", "1"]))
+            .unwrap();
 
         let store = MessageStore::from_graph(&graph);
 

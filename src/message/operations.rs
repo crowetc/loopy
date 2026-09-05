@@ -25,9 +25,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::factor::{FactorKind, UnaryFactor, VariableId};
+    use crate::factor::{FactorKind, UnaryFactor};
     use crate::message::Message;
     use crate::semiring::LogSumProduct;
+    use crate::variable::VariableId;
 
     use super::combine_message;
 

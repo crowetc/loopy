@@ -1,4 +1,5 @@
-use crate::factor::{FactorId, VariableId};
+use crate::factor::FactorId;
+use crate::variable::VariableId;
 
 /// One endpoint of a directed factor-graph edge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

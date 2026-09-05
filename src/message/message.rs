@@ -1,4 +1,5 @@
-use crate::factor::{Factor, FactorKind, VariableId};
+use crate::factor::{Factor, FactorKind};
+use crate::variable::VariableId;
 
 /// Information passed along a directed edge of a factor graph.
 ///
