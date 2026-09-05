@@ -1,34 +1,37 @@
-pub(crate) mod directed_edge;
-pub(crate) mod discrete_message;
-pub(crate) mod message_kind;
-pub(crate) mod store;
+//! Message-passing infrastructure for belief propagation.
+//!
+//! Messages are associated with directed edges of a factor graph and carry
+//! information about a single variable. The concrete representation of that
+//! information is provided by the factor system.
+//!
+//! This module also defines stable message identifiers and internal storage
+//! used by inference algorithms.
+
+mod directed_edge;
+mod message;
+mod operations;
+mod store;
 
 pub(crate) use directed_edge::{DirectedEdge, Endpoint};
-pub(crate) use discrete_message::DiscreteMessage;
-pub(crate) use message_kind::MessageKind;
+pub(crate) use message::Message;
+pub(crate) use operations::combine_message;
 pub(crate) use store::MessageStore;
 
-use crate::factor::VariableId;
-
+/// Stable identifier for a directed message in a belief-propagation state.
+///
+/// A `MessageId` indexes a message slot in [`MessageStore`]. Message IDs remain
+/// stable as long as the underlying inference state is extended append-only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct MessageId(usize);
 
 impl MessageId {
+    /// Creates a message identifier from its storage index.
     pub(crate) fn new(index: usize) -> Self {
         Self(index)
     }
 
+    /// Returns the storage index represented by this identifier.
     pub(crate) fn index(self) -> usize {
         self.0
     }
-}
-
-/// Information passed along an edge of a factor graph.
-///
-/// A message represents information about a single variable, but the
-/// concrete representation depends on the factor family and inference
-/// algorithm.
-pub(crate) trait Message: Send + Sync {
-    /// The variable represented by this message.
-    fn variable(&self) -> VariableId;
 }

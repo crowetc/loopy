@@ -1,4 +1,4 @@
-use super::{DirectedEdge, Endpoint, MessageId, MessageKind};
+use super::{DirectedEdge, Endpoint, Message, MessageId};
 use crate::factor::{FactorGraph, FactorId, VariableId};
 
 /// Storage for messages associated with the directed edges of a factor graph.
@@ -28,7 +28,7 @@ use crate::factor::{FactorGraph, FactorId, VariableId};
 /// topology lookups.
 #[derive(Debug)]
 pub(crate) struct MessageStore {
-    messages: Vec<MessageKind>,
+    messages: Vec<Option<Message>>,
     edges: Vec<DirectedEdge>,
 
     variable_out: Vec<Vec<MessageId>>,
@@ -64,7 +64,7 @@ impl MessageStore {
     /// - one from the factor to the variable.
     ///
     /// Each directed edge receives an associated message slot initialized to
-    /// [`MessageKind::Empty`].
+    /// `None`, indicating that no message has been computed for the edge.
     ///
     /// The adjacency indices are populated in the same order as the graph's
     /// factor scopes and variable factor-adjacency lists.
@@ -126,14 +126,22 @@ impl MessageStore {
         self.edges[id.index()]
     }
 
-    /// Returns the message associated with `id`.
-    pub(crate) fn get(&self, id: MessageId) -> &MessageKind {
-        &self.messages[id.index()]
+    /// Returns the message associated with `id`, if one has been computed.
+    pub(crate) fn get(&self, id: MessageId) -> Option<&Message> {
+        self.messages[id.index()].as_ref()
     }
 
-    /// Returns a mutable reference to the message associated with `id`.
-    pub(crate) fn get_mut(&mut self, id: MessageId) -> &mut MessageKind {
-        &mut self.messages[id.index()]
+    /// Returns a mutable reference to the message associated with `id`, if one
+    /// has been computed.
+    pub(crate) fn get_mut(&mut self, id: MessageId) -> Option<&mut Message> {
+        self.messages[id.index()].as_mut()
+    }
+
+    /// Stores `message` in the slot associated with `id`.
+    ///
+    /// Any previously computed message for the edge is replaced.
+    pub(crate) fn set(&mut self, id: MessageId, message: Message) {
+        self.messages[id.index()] = Some(message);
     }
 
     //
@@ -190,21 +198,22 @@ impl MessageStore {
 
     /// Adds a directed edge to the store.
     ///
-    /// A message slot initialized to [`MessageKind::Empty`] is created for the
-    /// edge, ensuring that every edge in the store has an associated message.
-    /// The appropriate incoming and outgoing adjacency indices are also updated.
+    /// A message slot initialized to `None` is created for the edge, ensuring
+    /// that every edge in the store has an associated message slot. The
+    /// appropriate incoming and outgoing adjacency indices are also updated.
     ///
     /// Returns the [`MessageId`] assigned to the new edge's message slot.
     fn add(&mut self, edge: DirectedEdge) -> MessageId {
         let id = MessageId::new(self.messages.len());
 
         self.edges.push(edge);
-        self.messages.push(MessageKind::Empty);
+        self.messages.push(None);
 
         match (edge.from, edge.to) {
             (Endpoint::Variable(variable), Endpoint::Factor(factor)) => {
                 self.ensure_variable(variable.index());
                 self.ensure_factor(factor.index());
+
                 self.variable_out[variable.index()].push(id);
                 self.factor_in[factor.index()].push(id);
             }
@@ -212,6 +221,7 @@ impl MessageStore {
             (Endpoint::Factor(factor), Endpoint::Variable(variable)) => {
                 self.ensure_variable(variable.index());
                 self.ensure_factor(factor.index());
+
                 self.factor_out[factor.index()].push(id);
                 self.variable_in[variable.index()].push(id);
             }
@@ -453,5 +463,17 @@ mod tests {
 
         assert!(store.variable_in(x).is_empty());
         assert!(store.variable_out(x).is_empty());
+    }
+
+    #[test]
+    fn new_message_slot_is_empty() {
+        let mut store = MessageStore::new();
+
+        let variable = VariableId::new(0);
+        let factor = FactorId::new(0);
+
+        let id = store.add(DirectedEdge::variable_to_factor(variable, factor));
+
+        assert!(store.get(id).is_none());
     }
 }
