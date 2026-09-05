@@ -74,7 +74,7 @@ impl MessageStore {
         let message_count: usize = graph
             .factors()
             .iter()
-            .map(|factor| factor.scope().len() * 2)
+            .map(|factor| factor.variable_ids().len() * 2)
             .sum();
 
         let mut store = Self {
@@ -91,7 +91,7 @@ impl MessageStore {
         }
 
         for (factor_index, factor_node) in graph.factors().iter().enumerate() {
-            store.add_factor(FactorId::new(factor_index), factor_node.scope());
+            store.add_factor(FactorId::new(factor_index), factor_node.variable_ids());
         }
 
         store
@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(factor_in.len(), 3);
         assert_eq!(factor_out.len(), 3);
 
-        for (i, &variable) in graph.factor_node(f).unwrap().scope().iter().enumerate() {
+        for (i, &variable) in graph.factor_node(f).unwrap().variable_ids().iter().enumerate() {
             assert_eq!(
                 store.edge(factor_in[i]),
                 DirectedEdge::variable_to_factor(variable, f)
@@ -391,7 +391,7 @@ mod tests {
 
         for &variable in &[x, y, z] {
             let variable_node = graph.variable_node(variable).unwrap();
-            let factors = variable_node.factors();
+            let factors = variable_node.factor_ids();
 
             assert_eq!(factors.len(), 1);
             assert_eq!(factors[0], f);
@@ -435,7 +435,7 @@ mod tests {
 
         let store = MessageStore::from_graph(&graph);
 
-        let factors = graph.variable_node(x).unwrap().factors();
+        let factors = graph.variable_node(x).unwrap().factor_ids();
 
         assert_eq!(factors, &[f0, f1]);
 

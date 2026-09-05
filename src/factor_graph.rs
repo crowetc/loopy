@@ -43,7 +43,7 @@ impl VariableNode {
     }
 
     /// Return the factors connected to this variable.
-    pub fn factors(&self) -> &[FactorId] {
+    pub fn factor_ids(&self) -> &[FactorId] {
         &self.factors
     }
 }
@@ -70,7 +70,7 @@ impl FactorNode {
     }
 
     /// Return the variables connected to this factor.
-    pub fn scope(&self) -> &[VariableId] {
+    pub fn variable_ids(&self) -> &[VariableId] {
         self.factor.scope()
     }
 }
@@ -252,7 +252,7 @@ mod tests {
         let node = graph.variable_node(x).unwrap();
 
         assert_eq!(node.variable().name(), "x");
-        assert!(node.factors().is_empty());
+        assert!(node.factor_ids().is_empty());
     }
 
     #[test]
@@ -291,7 +291,7 @@ mod tests {
         let node = graph.variable_node(x).unwrap();
 
         assert_eq!(node.variable().name(), "x");
-        assert!(node.factors().is_empty());
+        assert!(node.factor_ids().is_empty());
     }
 
     #[test]
@@ -427,7 +427,7 @@ mod tests {
 
         let node = graph.factor_node(id).unwrap();
 
-        assert_eq!(node.scope(), &[x]);
+        assert_eq!(node.variable_ids(), &[x]);
     }
 
     #[test]
@@ -466,8 +466,8 @@ mod tests {
         assert_eq!(f_id.index(), 0);
         assert_eq!(g_id.index(), 1);
 
-        assert_eq!(graph.factor_node(f_id).unwrap().scope(), &[x]);
-        assert_eq!(graph.factor_node(g_id).unwrap().scope(), &[y]);
+        assert_eq!(graph.factor_node(f_id).unwrap().variable_ids(), &[x]);
+        assert_eq!(graph.factor_node(g_id).unwrap().variable_ids(), &[y]);
     }
 
     #[test]
@@ -503,9 +503,9 @@ mod tests {
 
         let factor_id = graph.add_factor(factor).unwrap();
 
-        assert_eq!(graph.variable_node(x).unwrap().factors(), &[factor_id]);
-        assert_eq!(graph.variable_node(y).unwrap().factors(), &[factor_id]);
-        assert_eq!(graph.variable_node(z).unwrap().factors(), &[factor_id]);
+        assert_eq!(graph.variable_node(x).unwrap().factor_ids(), &[factor_id]);
+        assert_eq!(graph.variable_node(y).unwrap().factor_ids(), &[factor_id]);
+        assert_eq!(graph.variable_node(z).unwrap().factor_ids(), &[factor_id]);
     }
 
     #[test]
@@ -531,9 +531,9 @@ mod tests {
 
         let factor_id = graph.add_factor(factor).unwrap();
 
-        assert_eq!(graph.variable_node(x).unwrap().factors(), &[factor_id]);
-        assert_eq!(graph.variable_node(y).unwrap().factors(), &[factor_id]);
-        assert!(graph.variable_node(z).unwrap().factors().is_empty());
+        assert_eq!(graph.variable_node(x).unwrap().factor_ids(), &[factor_id]);
+        assert_eq!(graph.variable_node(y).unwrap().factor_ids(), &[factor_id]);
+        assert!(graph.variable_node(z).unwrap().factor_ids().is_empty());
     }
 
     #[test]
@@ -549,7 +549,7 @@ mod tests {
 
         let node = graph.variable_node(x).unwrap();
 
-        assert_eq!(node.factors(), &[factor_id]);
+        assert_eq!(node.factor_ids(), &[factor_id]);
     }
 
     #[test]
@@ -568,7 +568,7 @@ mod tests {
 
         let node = graph.variable_node(x).unwrap();
 
-        assert_eq!(node.factors(), &[f_id, g_id]);
+        assert_eq!(node.factor_ids(), &[f_id, g_id]);
     }
 
     #[test]
@@ -584,7 +584,7 @@ mod tests {
 
         let factor_node = graph.factor_node(id).unwrap();
 
-        assert_eq!(factor_node.scope(), factor_node.factor().scope());
+        assert_eq!(factor_node.variable_ids(), factor_node.factor().scope());
     }
 
     #[test]
@@ -612,6 +612,6 @@ mod tests {
 
         let node = graph.factor_node(id).unwrap();
 
-        assert_eq!(node.scope(), &[x, y, z]);
+        assert_eq!(node.variable_ids(), &[x, y, z]);
     }
 }
