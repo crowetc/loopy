@@ -1,23 +1,33 @@
 @startuml
 
-class FactorGraph
+class FactorGraph {
+    +add_variable(Variable): Result<VariableId, GraphError>
+    +add_factor(FactorKind): Result<FactorId, GraphError>
+}
 
-class VariableNode
-class FactorNode
+class VariableNode {
+    +factor_ids(): &[FactorId]
+}
+
+class FactorNode {
+    +variable_ids(): &[VariableId]
+}
 
 class Variable
+
 enum FactorKind
 
 class VariableId
+
 class FactorId
 
-FactorGraph o-- VariableNode
-FactorGraph o-- FactorNode
+FactorGraph o-- "0..*" VariableNode
+FactorGraph o-- "0..*" FactorNode
 
-VariableNode *-- Variable
+VariableNode *-- "1" Variable
 VariableNode ..> FactorId
 
-FactorNode *-- FactorKind
+FactorNode *-- "1" FactorKind
 FactorNode ..> VariableId
 
 @enduml

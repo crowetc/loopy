@@ -1,13 +1,13 @@
 @startuml
 
 interface Factor {
-    +scope()
-    +ndim()
+    +scope(): &[VariableId]
+    +ndim(): usize
 }
 
 interface "FactorOps<S>" as FactorOps {
-    +reduce(vars)
-    +combine(other)
+    +reduce(&[VariableId]): FactorKind
+    +combine(FactorKind): FactorKind
 }
 
 class DenseFactor
