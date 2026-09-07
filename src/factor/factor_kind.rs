@@ -24,6 +24,24 @@ pub enum FactorKind {
     Unary(UnaryFactor),
 }
 
+impl From<DenseFactor> for FactorKind {
+    fn from(factor: DenseFactor) -> Self {
+        Self::Dense(factor)
+    }
+}
+
+impl From<ScalarFactor> for FactorKind {
+    fn from(factor: ScalarFactor) -> Self {
+        Self::Scalar(factor)
+    }
+}
+
+impl From<UnaryFactor> for FactorKind {
+    fn from(factor: UnaryFactor) -> Self {
+        Self::Unary(factor)
+    }
+}
+
 impl Factor for FactorKind {
     fn scope(&self) -> &[VariableId] {
         match self {

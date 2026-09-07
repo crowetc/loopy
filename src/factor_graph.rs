@@ -167,22 +167,27 @@ impl FactorGraph {
     ///
     /// Returns [`GraphError::UnknownVariableId`] if the factor references
     /// a variable that does not belong to this graph.
-    pub fn add_factor(&mut self, factor: FactorKind) -> Result<FactorId, GraphError> {
+    pub fn add_factor<F>(&mut self, factor: F) -> Result<FactorId, GraphError>
+    where
+        F: Into<FactorKind>,
+    {
+        let factor = factor.into();
+
         for &variable_id in factor.scope() {
             if self.variable(variable_id).is_none() {
                 return Err(GraphError::UnknownVariableId(variable_id));
             }
         }
 
-        let id = FactorId::new(self.factors.len());
+        let factor_id = FactorId::new(self.factors.len());
 
         for &variable_id in factor.scope() {
-            self.variables[variable_id.index()].factors.push(id);
+            self.variables[variable_id.index()].factors.push(factor_id);
         }
 
         self.factors.push(FactorNode::new(factor));
 
-        Ok(id)
+        Ok(factor_id)
     }
 
     /// Return the number of factors in the graph.

@@ -40,7 +40,11 @@ impl BeliefState {
     /// Unlike [`FactorGraph::add_factor`], this updates both the underlying
     /// factor graph and the associated message state while preserving existing
     /// messages.
-    pub fn apply(&mut self, factor: FactorKind) -> Result<FactorId, GraphError> {
+    pub fn apply<F>(&mut self, factor: F) -> Result<FactorId, GraphError>
+    where
+        F: Into<FactorKind>,
+    {
+        let factor = factor.into();
         let scope = factor.scope().to_vec();
         let factor_id = self.graph.add_factor(factor)?;
 
