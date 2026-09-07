@@ -1,21 +1,37 @@
+use std::marker::PhantomData;
+
 use crate::factor::{Factor, FactorId, FactorKind, FactorOps};
 use crate::factor_graph::{FactorGraph, GraphError};
 use crate::message::{MessageStore, combine_message};
 use crate::semiring::Semiring;
 use crate::variable::{Variable, VariableId};
 
-#[derive(Debug)]
-pub struct BeliefState {
-    graph: FactorGraph,
-    messages: MessageStore,
+/// An error produced when querying an inference belief.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BeliefError {
+    UnknownVariableId(VariableId),
 }
 
-impl BeliefState {
+#[derive(Debug)]
+pub struct BeliefState<S> {
+    graph: FactorGraph,
+    messages: MessageStore,
+    _semiring: PhantomData<S>,
+}
+
+impl<S> BeliefState<S>
+where
+    S: Semiring,
+{
     /// Creates a belief state from an existing factor graph.
     pub fn from_graph(graph: FactorGraph) -> Self {
         let messages = MessageStore::from_graph(&graph);
 
-        Self { graph, messages }
+        Self {
+            graph,
+            messages,
+            _semiring: PhantomData,
+        }
     }
 
     /// Returns the factor graph associated with this belief state.
@@ -53,11 +69,20 @@ impl BeliefState {
         Ok(factor_id)
     }
 
-    pub fn belief<S>(&self, variable: VariableId) -> Option<FactorKind>
+    /// Returns the current raw belief for a variable.
+    ///
+    /// The returned factor, when present, has scope exactly `[variable]`.
+    ///
+    /// Returns `Ok(None)` when the variable is valid but has no concrete
+    /// incoming messages.
+    pub fn belief(&self, variable: VariableId) -> Result<Option<FactorKind>, BeliefError>
     where
-        S: Semiring,
         FactorKind: FactorOps<S>,
     {
+        if self.graph.variable(variable).is_none() {
+            return Err(BeliefError::UnknownVariableId(variable));
+        }
+
         let mut accumulator = None;
 
         for &message_id in self.messages.variable_in(variable) {
@@ -68,7 +93,7 @@ impl BeliefState {
             accumulator = Some(combine_message::<S>(accumulator, message));
         }
 
-        accumulator
+        Ok(accumulator)
     }
 
     pub(crate) fn messages(&self) -> &MessageStore {
@@ -89,7 +114,7 @@ mod tests {
     use super::*;
     use crate::factor::{DenseFactor, FactorKind, UnaryFactor};
     use crate::schedule::{Schedule, Synchronous};
-    use crate::semiring::LogSumProduct;
+    use crate::semiring::{LogMaxProduct, LogSumProduct};
     use crate::variable::Variable;
     use ndarray::array;
 
@@ -116,7 +141,7 @@ mod tests {
 
         let f = graph.add_factor(factor).unwrap();
 
-        let state = BeliefState::from_graph(graph);
+        let state = BeliefState::<LogMaxProduct>::from_graph(graph);
 
         assert_eq!(state.messages().factor_in(f).len(), 2);
         assert_eq!(state.messages().factor_out(f).len(), 2);
@@ -125,7 +150,7 @@ mod tests {
     #[test]
     fn extend_adds_variable_without_messages() {
         let graph = FactorGraph::new();
-        let mut state = BeliefState::from_graph(graph);
+        let mut state = BeliefState::<LogSumProduct>::from_graph(graph);
 
         let x = state.extend(Variable::discrete("x", ["0", "1"])).unwrap();
 
@@ -145,7 +170,7 @@ mod tests {
             .add_variable(Variable::discrete("y", ["0", "1"]))
             .unwrap();
 
-        let mut state = BeliefState::from_graph(graph);
+        let mut state = BeliefState::<LogSumProduct>::from_graph(graph);
 
         let factor = FactorKind::Dense(DenseFactor::new(
             vec![x, y],
@@ -171,15 +196,18 @@ mod tests {
         let x = graph.add_variable(binary_variable("x")).unwrap();
 
         graph
-            .add_factor(FactorKind::Unary(UnaryFactor::new(x, vec![1.0, 2.0])))
+            .add_factor(UnaryFactor::new(x, vec![1.0, 2.0]))
             .unwrap();
 
-        let mut state = BeliefState::from_graph(graph);
-        let mut schedule = Synchronous::<LogSumProduct>::new();
+        let mut state = BeliefState::<LogSumProduct>::from_graph(graph);
+        let mut schedule = Synchronous::new();
 
         schedule.step(&mut state);
 
-        let belief = state.belief::<LogSumProduct>(x).expect("expected belief");
+        let belief = state
+            .belief(x)
+            .expect("belief query should succeed")
+            .expect("expected belief");
 
         let FactorKind::Unary(belief) = belief else {
             panic!("expected unary belief");
@@ -195,19 +223,22 @@ mod tests {
         let x = graph.add_variable(binary_variable("x")).unwrap();
 
         graph
-            .add_factor(FactorKind::Unary(UnaryFactor::new(x, vec![1.0, 2.0])))
+            .add_factor(UnaryFactor::new(x, vec![1.0, 2.0]))
             .unwrap();
 
         graph
-            .add_factor(FactorKind::Unary(UnaryFactor::new(x, vec![3.0, 4.0])))
+            .add_factor(UnaryFactor::new(x, vec![3.0, 4.0]))
             .unwrap();
 
-        let mut state = BeliefState::from_graph(graph);
-        let mut schedule = Synchronous::<LogSumProduct>::new();
+        let mut state = BeliefState::<LogSumProduct>::from_graph(graph);
+        let mut schedule = Synchronous::new();
 
         schedule.step(&mut state);
 
-        let belief = state.belief::<LogSumProduct>(x).expect("expected belief");
+        let belief = state
+            .belief(x)
+            .expect("belief query should succeed")
+            .expect("expected belief");
 
         let FactorKind::Unary(belief) = belief else {
             panic!("expected unary belief");
@@ -222,8 +253,28 @@ mod tests {
 
         let x = graph.add_variable(binary_variable("x")).unwrap();
 
-        let state = BeliefState::from_graph(graph);
+        let state = BeliefState::<LogMaxProduct>::from_graph(graph);
 
-        assert!(state.belief::<LogSumProduct>(x).is_none());
+        assert!(
+            state
+                .belief(x)
+                .expect("belief query should succeed")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn belief_rejects_unknown_variable() {
+        let graph = FactorGraph::new();
+        let state = BeliefState::<LogSumProduct>::from_graph(graph);
+
+        let unknown = VariableId::new(0);
+
+        let result = state.belief(unknown);
+
+        assert!(matches!(
+            result,
+            Err(BeliefError::UnknownVariableId(id)) if id == unknown
+        ));
     }
 }

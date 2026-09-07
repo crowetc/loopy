@@ -3,7 +3,7 @@ use crate::factor::{Factor, FactorKind, FactorOps};
 use crate::message::{Endpoint, Message, MessageId, combine_message};
 use crate::semiring::Semiring;
 
-pub(crate) fn compute_message<S>(state: &BeliefState, message_id: MessageId) -> Option<Message>
+pub(crate) fn compute_message<S>(state: &BeliefState<S>, message_id: MessageId) -> Option<Message>
 where
     S: Semiring,
     FactorKind: FactorOps<S>,
@@ -19,7 +19,7 @@ where
     }
 }
 
-fn variable_to_factor<S>(state: &BeliefState, message_id: MessageId) -> Option<Message>
+fn variable_to_factor<S>(state: &BeliefState<S>, message_id: MessageId) -> Option<Message>
 where
     S: Semiring,
     FactorKind: FactorOps<S>,
@@ -57,7 +57,7 @@ where
     })
 }
 
-fn factor_to_variable<S>(state: &BeliefState, message_id: MessageId) -> Option<Message>
+fn factor_to_variable<S>(state: &BeliefState<S>, message_id: MessageId) -> Option<Message>
 where
     S: Semiring,
     FactorKind: FactorOps<S>,
@@ -138,11 +138,15 @@ mod tests {
         .expect("unary factor should be a valid message")
     }
 
-    fn variable_to_factor_id(
-        state: &BeliefState,
+    fn variable_to_factor_id<S>(
+        state: &BeliefState<S>,
         variable: crate::variable::VariableId,
         factor: crate::factor::FactorId,
-    ) -> MessageId {
+    ) -> MessageId
+    where
+        S: Semiring,
+        FactorKind: FactorOps<S>,
+    {
         state
             .messages()
             .variable_out(variable)
@@ -162,11 +166,15 @@ mod tests {
             .expect("expected variable-to-factor message edge")
     }
 
-    fn factor_to_variable_id(
-        state: &BeliefState,
+    fn factor_to_variable_id<S>(
+        state: &BeliefState<S>,
         factor: crate::factor::FactorId,
         variable: crate::variable::VariableId,
-    ) -> MessageId {
+    ) -> MessageId
+    where
+        S: Semiring,
+        FactorKind: FactorOps<S>,
+    {
         state
             .messages()
             .factor_out(factor)

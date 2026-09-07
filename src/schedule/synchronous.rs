@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use crate::belief_state::BeliefState;
 use crate::factor::{FactorId, FactorKind, FactorOps};
 use crate::semiring::Semiring;
@@ -8,24 +6,20 @@ use super::Schedule;
 use super::updates::compute_message;
 
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Synchronous<S> {
-    _semiring: PhantomData<S>,
-}
+pub struct Synchronous;
 
-impl<S> Synchronous<S> {
+impl Synchronous {
     pub fn new() -> Self {
-        Self {
-            _semiring: PhantomData,
-        }
+        Self
     }
 }
 
-impl<S> Schedule for Synchronous<S>
+impl<S> Schedule<S> for Synchronous
 where
     S: Semiring,
     FactorKind: FactorOps<S>,
 {
-    fn step(&mut self, state: &mut BeliefState) {
+    fn step(&mut self, state: &mut BeliefState<S>) {
         let mut message_ids = Vec::new();
 
         for index in 0..state.graph().num_factors() {
@@ -80,8 +74,8 @@ mod tests {
             )))
             .unwrap();
 
-        let mut state = BeliefState::from_graph(graph);
-        let mut schedule = Synchronous::<LogMaxProduct>::new();
+        let mut state = BeliefState::<LogMaxProduct>::from_graph(graph);
+        let mut schedule = Synchronous::new();
 
         schedule.step(&mut state);
 
@@ -117,8 +111,8 @@ mod tests {
             )))
             .unwrap();
 
-        let mut state = BeliefState::from_graph(graph);
-        let mut schedule = Synchronous::<LogSumProduct>::new();
+        let mut state = BeliefState::<LogSumProduct>::from_graph(graph);
+        let mut schedule = Synchronous::new();
 
         let f_to_x = state.messages().factor_out(f)[0];
 
