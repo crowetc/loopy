@@ -1,6 +1,7 @@
-use crate::factor::{Factor, FactorId, FactorKind};
+use crate::factor::{Factor, FactorId, FactorKind, FactorOps};
 use crate::factor_graph::{FactorGraph, GraphError};
-use crate::message::MessageStore;
+use crate::message::{MessageStore, combine_message};
+use crate::semiring::Semiring;
 use crate::variable::{Variable, VariableId};
 
 #[derive(Debug)]
@@ -48,6 +49,24 @@ impl BeliefState {
         Ok(factor_id)
     }
 
+    pub fn belief<S>(&self, variable: VariableId) -> Option<FactorKind>
+    where
+        S: Semiring,
+        FactorKind: FactorOps<S>,
+    {
+        let mut accumulator = None;
+
+        for &message_id in self.messages.variable_in(variable) {
+            let Some(message) = self.messages.get(message_id) else {
+                continue;
+            };
+
+            accumulator = Some(combine_message::<S>(accumulator, message));
+        }
+
+        accumulator
+    }
+
     pub(crate) fn messages(&self) -> &MessageStore {
         &self.messages
     }
@@ -64,8 +83,15 @@ impl BeliefState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::factor::{DenseFactor, FactorKind};
+    use crate::factor::{DenseFactor, FactorKind, UnaryFactor};
+    use crate::schedule::{Schedule, Synchronous};
+    use crate::semiring::LogSumProduct;
+    use crate::variable::Variable;
     use ndarray::array;
+
+    fn binary_variable(name: &str) -> Variable {
+        Variable::discrete(name, ["0", "1"])
+    }
 
     #[test]
     fn from_graph_builds_message_state() {
@@ -132,5 +158,68 @@ mod tests {
 
         assert_eq!(state.messages().variable_in(y).len(), 1);
         assert_eq!(state.messages().variable_out(y).len(), 1);
+    }
+
+    #[test]
+    fn belief_from_single_unary_factor() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(binary_variable("x")).unwrap();
+
+        graph
+            .add_factor(FactorKind::Unary(UnaryFactor::new(x, vec![1.0, 2.0])))
+            .unwrap();
+
+        let mut state = BeliefState::from_graph(graph);
+        let mut schedule = Synchronous;
+
+        <Synchronous as Schedule<LogSumProduct>>::step(&mut schedule, &mut state);
+
+        let belief = state.belief::<LogSumProduct>(x).expect("expected belief");
+
+        let FactorKind::Unary(belief) = belief else {
+            panic!("expected unary belief");
+        };
+
+        assert_eq!(belief.data(), &[1.0, 2.0]);
+    }
+
+    #[test]
+    fn belief_combines_multiple_incoming_messages() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(binary_variable("x")).unwrap();
+
+        graph
+            .add_factor(FactorKind::Unary(UnaryFactor::new(x, vec![1.0, 2.0])))
+            .unwrap();
+
+        graph
+            .add_factor(FactorKind::Unary(UnaryFactor::new(x, vec![3.0, 4.0])))
+            .unwrap();
+
+        let mut state = BeliefState::from_graph(graph);
+        let mut schedule = Synchronous;
+
+        <Synchronous as Schedule<LogSumProduct>>::step(&mut schedule, &mut state);
+
+        let belief = state.belief::<LogSumProduct>(x).expect("expected belief");
+
+        let FactorKind::Unary(belief) = belief else {
+            panic!("expected unary belief");
+        };
+
+        assert_eq!(belief.data(), &[4.0, 6.0]);
+    }
+
+    #[test]
+    fn belief_is_none_without_incoming_messages() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(binary_variable("x")).unwrap();
+
+        let state = BeliefState::from_graph(graph);
+
+        assert!(state.belief::<LogSumProduct>(x).is_none());
     }
 }
