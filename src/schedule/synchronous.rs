@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crate::belief_state::BeliefState;
 use crate::factor::{FactorId, FactorKind, FactorOps};
 use crate::semiring::Semiring;
@@ -6,9 +8,19 @@ use super::Schedule;
 use super::updates::compute_message;
 
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Synchronous;
+pub struct Synchronous<S> {
+    _semiring: PhantomData<S>,
+}
 
-impl<S> Schedule<S> for Synchronous
+impl<S> Synchronous<S> {
+    pub fn new() -> Self {
+        Self {
+            _semiring: PhantomData,
+        }
+    }
+}
+
+impl<S> Schedule for Synchronous<S>
 where
     S: Semiring,
     FactorKind: FactorOps<S>,
@@ -69,10 +81,9 @@ mod tests {
             .unwrap();
 
         let mut state = BeliefState::from_graph(graph);
+        let mut schedule = Synchronous::<LogMaxProduct>::new();
 
-        let mut schedule = Synchronous;
-
-        <Synchronous as Schedule<LogMaxProduct>>::step(&mut schedule, &mut state);
+        schedule.step(&mut state);
 
         let factor_to_x = state.messages().factor_out(factor)[0];
 
@@ -107,7 +118,7 @@ mod tests {
             .unwrap();
 
         let mut state = BeliefState::from_graph(graph);
-        let mut schedule = Synchronous;
+        let mut schedule = Synchronous::<LogSumProduct>::new();
 
         let f_to_x = state.messages().factor_out(f)[0];
 
@@ -131,7 +142,7 @@ mod tests {
         // Iteration 1
         //
 
-        <Synchronous as Schedule<LogSumProduct>>::step(&mut schedule, &mut state);
+        schedule.step(&mut state);
 
         let f_to_x_message = state
             .messages()
@@ -166,7 +177,7 @@ mod tests {
         // Iteration 2
         //
 
-        <Synchronous as Schedule<LogSumProduct>>::step(&mut schedule, &mut state);
+        schedule.step(&mut state);
 
         let x_to_g_message = state
             .messages()

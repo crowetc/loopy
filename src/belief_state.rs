@@ -171,9 +171,9 @@ mod tests {
             .unwrap();
 
         let mut state = BeliefState::from_graph(graph);
-        let mut schedule = Synchronous;
+        let mut schedule = Synchronous::<LogSumProduct>::new();
 
-        <Synchronous as Schedule<LogSumProduct>>::step(&mut schedule, &mut state);
+        schedule.step(&mut state);
 
         let belief = state.belief::<LogSumProduct>(x).expect("expected belief");
 
@@ -199,9 +199,9 @@ mod tests {
             .unwrap();
 
         let mut state = BeliefState::from_graph(graph);
-        let mut schedule = Synchronous;
+        let mut schedule = Synchronous::<LogSumProduct>::new();
 
-        <Synchronous as Schedule<LogSumProduct>>::step(&mut schedule, &mut state);
+        schedule.step(&mut state);
 
         let belief = state.belief::<LogSumProduct>(x).expect("expected belief");
 
