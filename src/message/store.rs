@@ -377,7 +377,13 @@ mod tests {
         assert_eq!(factor_in.len(), 3);
         assert_eq!(factor_out.len(), 3);
 
-        for (i, &variable) in graph.factor_node(f).unwrap().variable_ids().iter().enumerate() {
+        for (i, &variable) in graph
+            .factor_node(f)
+            .unwrap()
+            .variable_ids()
+            .iter()
+            .enumerate()
+        {
             assert_eq!(
                 store.edge(factor_in[i]),
                 DirectedEdge::variable_to_factor(variable, f)
