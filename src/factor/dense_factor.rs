@@ -1,11 +1,16 @@
-//! Dense table-based discrete factor implementation (log-space).
+//! Dense discrete factor representation.
 //!
-//! A `DenseFactor` stores:
-//! - a `scope`: variable IDs
-//! - a dense `ndarray::ArrayD<f64>` data containing log-potentials
+//! A [`DenseFactor`] represents a factor over finite discrete variables using
+//! an [`ndarray::ArrayD`] of log-space values.
+//!
+//! Each variable in the factor's scope corresponds to one axis of the data
+//! array. The variable at `scope[i]` is represented by axis `i`, whose length
+//! is the cardinality of that variable.
+//!
+//! Factor combination is performed by addition in log-space. Reduction is
+//! provided for both [`LogSumProduct`] and [`LogMaxProduct`].
 
 use ndarray::{ArrayD, IxDyn};
-use std::f64;
 
 use crate::semiring::{LogMaxProduct, LogSumProduct};
 use crate::variable::VariableId;
@@ -15,7 +20,13 @@ use super::{
     DiscreteFactor, Factor, FactorKind, FactorOps, FactorResidual, ScalarFactor, UnaryFactor,
 };
 
-/// Dense table-based factor over discrete variables (log-space).
+/// A dense factor over finite discrete variables.
+///
+/// Factor values are stored in log-space. Each variable in [`Factor::scope`]
+/// corresponds to the array axis at the same position.
+///
+/// For example, a factor with scope `[x, y]` and shape `[2, 3]` represents a
+/// binary variable `x` and a three-state variable `y`.
 #[derive(Clone, Debug)]
 pub struct DenseFactor {
     scope: Vec<VariableId>,
@@ -23,10 +34,11 @@ pub struct DenseFactor {
 }
 
 impl DenseFactor {
-    /// Create a new dense factor.
+    /// Creates a dense factor from log-space values.
     ///
     /// # Panics
-    /// Panics if `scope.len() != data.ndim()`.
+    /// Panics if the number of variables in `scope` does not equal the number
+    /// of dimensions in `data`.
     pub fn new(scope: Vec<VariableId>, data: ArrayD<f64>) -> Self {
         assert_eq!(
             scope.len(),
@@ -37,10 +49,11 @@ impl DenseFactor {
         Self { scope, data }
     }
 
-    /// Construct a dense factor from **linear-space** values.
+    /// Construct a dense factor from linear-space values.
     ///
     /// # Panics
-    /// Panics if `scope.len() != linear.ndim()`.
+    /// Panics if the number of variables in `scope` does not equal the number
+    /// of dimensions in `linear`.
     pub fn from_linear(scope: Vec<VariableId>, linear: ArrayD<f64>) -> Self {
         assert_eq!(
             scope.len(),
@@ -53,22 +66,22 @@ impl DenseFactor {
         Self { scope, data }
     }
 
-    /// Access the underlying data (log-space).
+    /// Returns the factor values in log-space.
     pub fn data(&self) -> &ArrayD<f64> {
         &self.data
     }
 
-    /// Consume the factor and return `(scope, data)`.
+    /// Consumes the factor and returns its scope and log-space data.
     pub fn into_parts(self) -> (Vec<VariableId>, ArrayD<f64>) {
         (self.scope, self.data)
     }
 
-    /// Consume and return the owned data array.
+    /// Consumes the factor and returns its log-space data.
     pub fn into_data(self) -> ArrayD<f64> {
         self.data
     }
 
-    /// Consume and return the owned scope vector.
+    /// Consumes the factor and returns its scope.
     pub fn into_scope(self) -> Vec<VariableId> {
         self.scope
     }
@@ -77,13 +90,10 @@ impl DenseFactor {
     // Marginalization
     //
 
-    /// Core marginalization kernel for sum.
+    /// Marginalization with sum.
     ///
-    /// This method:
-    /// 1. Partitions axes into kept vs. reduced.
-    /// 2. Permutes so kept axes come first.
-    /// 3. Iterates contiguous blocks corresponding to reduced axes.
-    /// 4. Performs log-sum-exp reduction over each block.
+    /// Retained axes are moved before eliminated axes so that each assignment of
+    /// the retained variables corresponds to one logical reduction block.
     pub(crate) fn reduce_sum_kernel(self, vars: &[VariableId]) -> DenseFactor {
         let reduction = match build_reduction(&self.scope, self.data.shape(), vars) {
             Some(reduction) => reduction,
@@ -116,13 +126,10 @@ impl DenseFactor {
         DenseFactor::new(reduction.new_scope, out)
     }
 
-    /// Core marginalization kernel for max-product.
+    /// Marginalize with max.
     ///
-    /// This method:
-    /// 1. Partitions axes into kept vs. reduced.
-    /// 2. Permutes so kept axes come first.
-    /// 3. Iterates contiguous blocks corresponding to reduced axes.
-    /// 4. Performs maximum reduction over each block.
+    /// Retained axes are moved before eliminated axes so that each assignment of
+    /// the retained variables corresponds to one logical reduction block.
     pub(crate) fn reduce_max_kernel(self, vars: &[VariableId]) -> DenseFactor {
         let reduction = match build_reduction(&self.scope, self.data.shape(), vars) {
             Some(reduction) => reduction,
@@ -420,14 +427,12 @@ impl DenseFactor {
     }
 }
 
-/// Implement `Factor` trait
 impl Factor for DenseFactor {
     fn scope(&self) -> &[VariableId] {
         &self.scope
     }
 }
 
-/// Implement `DiscreteFactor` trait.
 impl DiscreteFactor for DenseFactor {
     fn card(&self) -> &[usize] {
         self.data.shape()
@@ -437,21 +442,21 @@ impl DiscreteFactor for DenseFactor {
 impl FactorResidual for DenseFactor {
     fn residual(&self, other: &Self) -> f64 {
         assert_eq!(
-            self.scope(),
-            other.scope(),
-            "residual requires matching scope"
+            self.scope,
+            other.scope,
+            "residual requires matching scopes"
         );
 
         assert_eq!(
-            self.data().shape(),
-            other.data().shape(),
-            "residual requires matching shape"
+            self.data.shape(),
+            other.data.shape(),
+            "residual requires matching shapes"
         );
 
-        self.data()
+        self.data
             .iter()
-            .zip(other.data().iter())
-            .map(|(a, b)| (a - b).abs())
+            .zip(other.data.iter())
+            .map(|(lhs, rhs)| (lhs - rhs).abs())
             .fold(0.0, f64::max)
     }
 }
@@ -514,23 +519,23 @@ impl FactorOps<LogMaxProduct> for DenseFactor {
 ///
 /// The `*_to_f3` mappings map an input axis to its corresponding output axis.
 struct Alignment {
-    /// The union of variables from f1 and f2, in aligned order
+    /// Sorted union of the input scopes.
     union_vars: Vec<VariableId>,
 
-    /// Indices of variables that appear only in f1
+    /// Axes appearing only in the first factor.
     f1_only: Vec<usize>,
 
-    /// Indices of variables that appear only in f2
+    /// Axes appearing only in the second factor.
     f2_only: Vec<usize>,
 
-    /// Indices of variables common to both f1 and f2
+    /// Axes corresponding to variables shared by both factors.
     f1_common: Vec<usize>,
     f2_common: Vec<usize>,
 
-    /// Mapping: f1 axis → f3 axis
+    /// Maps axes in the first factor to output axes.
     f1_to_f3: Vec<usize>,
 
-    /// Mapping: f2 axis → f3 axis
+    /// Maps axes in the second factor to output axes.
     f2_to_f3: Vec<usize>,
 }
 
