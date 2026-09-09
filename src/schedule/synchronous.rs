@@ -1,5 +1,6 @@
 use crate::belief_state::BeliefState;
 use crate::factor::{FactorId, FactorKind, FactorOps};
+use crate::message::{Message, MessageOps};
 use crate::semiring::Semiring;
 
 use super::Schedule;
@@ -18,8 +19,9 @@ impl<S> Schedule<S> for Synchronous
 where
     S: Semiring,
     FactorKind: FactorOps<S>,
+    Message: MessageOps<S>,
 {
-    fn step(&mut self, state: &mut BeliefState<S>) {
+    fn step(&mut self, state: &mut BeliefState<S>) -> f64 {
         let mut message_ids = Vec::new();
 
         for index in 0..state.graph().num_factors() {
@@ -32,12 +34,31 @@ where
 
         let updates: Vec<_> = message_ids
             .into_iter()
-            .filter_map(|id| compute_message::<S>(state, id).map(|message| (id, message)))
+            .filter_map(|id| {
+                let message = compute_message::<S>(state, id)?;
+
+                let message = <Message as MessageOps<S>>::normalize(message);
+
+                let residual = match state.messages().get(id) {
+                    Some(previous) => <Message as MessageOps<S>>::residual(&message, previous),
+
+                    None => f64::INFINITY,
+                };
+
+                Some((id, message, residual))
+            })
             .collect();
 
-        for (id, message) in updates {
+        let max_residual = updates
+            .iter()
+            .map(|(_, _, residual)| *residual)
+            .fold(0.0, f64::max);
+
+        for (id, message, _) in updates {
             state.messages_mut().set(id, message);
         }
+
+        max_residual
     }
 }
 
@@ -58,6 +79,17 @@ mod tests {
 
     fn binary_variable(name: &str) -> Variable {
         Variable::discrete(name, ["0", "1"])
+    }
+
+    fn assert_values_close(actual: &[f64], expected: &[f64]) {
+        assert_eq!(actual.len(), expected.len());
+
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert!(
+                (actual - expected).abs() < 1e-10,
+                "expected {expected}, got {actual}"
+            );
+        }
     }
 
     #[test]
@@ -90,7 +122,9 @@ mod tests {
             panic!("expected unary factor");
         };
 
-        assert_eq!(message.data(), &[1.0, 3.0]);
+        // Max-product reduction gives [1.0, 3.0].
+        // Message normalization subtracts the maximum value, 3.0.
+        assert_values_close(message.data(), &[-2.0, 0.0]);
     }
 
     #[test]
@@ -107,7 +141,7 @@ mod tests {
         let g = graph
             .add_factor(FactorKind::Dense(DenseFactor::new(
                 vec![x, y],
-                array![[0.0, 0.0], [0.0, 0.0],].into_dyn(),
+                array![[0.0, 0.0], [0.0, 0.0]].into_dyn(),
             )))
             .unwrap();
 
@@ -147,7 +181,10 @@ mod tests {
             panic!("expected unary factor");
         };
 
-        assert_eq!(f_to_x_factor.data(), &[1.0, 2.0]);
+        let normalizer = (1.0_f64.exp() + 2.0_f64.exp()).ln();
+
+        assert!((f_to_x_factor.data()[0] - (1.0 - normalizer)).abs() < 1e-10);
+        assert!((f_to_x_factor.data()[1] - (2.0 - normalizer)).abs() < 1e-10);
 
         // x -> g was computed from the message state at the beginning
         // of iteration 1, before f -> x existed.
@@ -162,7 +199,9 @@ mod tests {
             panic!("expected unary factor");
         };
 
-        let expected = f64::ln(2.0);
+        // The raw message is [ln(2), ln(2)]. After sum-product
+        // normalization it becomes [-ln(2), -ln(2)].
+        let expected = -f64::ln(2.0);
 
         assert!((g_to_y_factor.data()[0] - expected).abs() < 1e-10);
         assert!((g_to_y_factor.data()[1] - expected).abs() < 1e-10);
@@ -182,8 +221,10 @@ mod tests {
             panic!("expected unary factor");
         };
 
-        // x -> g can now see f -> x from iteration 1.
-        assert_eq!(x_to_g_factor.data(), &[1.0, 2.0]);
+        // x -> g can now see the normalized f -> x message from
+        // iteration 1.
+        assert!((x_to_g_factor.data()[0] - (1.0 - normalizer)).abs() < 1e-10);
+        assert!((x_to_g_factor.data()[1] - (2.0 - normalizer)).abs() < 1e-10);
 
         let g_to_y_message = state
             .messages()

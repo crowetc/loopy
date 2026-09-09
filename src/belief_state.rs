@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::factor::{Factor, FactorId, FactorKind, FactorOps};
 use crate::factor_graph::{FactorGraph, GraphError};
-use crate::message::{MessageStore, combine_message};
+use crate::message::{Message, MessageOps, MessageStore};
 use crate::semiring::Semiring;
 use crate::variable::{Variable, VariableId};
 
@@ -78,6 +78,7 @@ where
     pub fn belief(&self, variable: VariableId) -> Result<Option<FactorKind>, BeliefError>
     where
         FactorKind: FactorOps<S>,
+        Message: MessageOps<S>,
     {
         if self.graph.variable(variable).is_none() {
             return Err(BeliefError::UnknownVariableId(variable));
@@ -90,7 +91,7 @@ where
                 continue;
             };
 
-            accumulator = Some(combine_message::<S>(accumulator, message));
+            accumulator = Some(<Message as MessageOps<S>>::combine(accumulator, message));
         }
 
         Ok(accumulator)
@@ -213,7 +214,11 @@ mod tests {
             panic!("expected unary belief");
         };
 
-        assert_eq!(belief.data(), &[1.0, 2.0]);
+        let normalizer = (1.0_f64.exp() + 2.0_f64.exp()).ln();
+
+        assert!((belief.data()[0] - (1.0 - normalizer)).abs() < 1e-10);
+
+        assert!((belief.data()[1] - (2.0 - normalizer)).abs() < 1e-10);
     }
 
     #[test]
@@ -244,7 +249,16 @@ mod tests {
             panic!("expected unary belief");
         };
 
-        assert_eq!(belief.data(), &[4.0, 6.0]);
+        let normalizer_a = (1.0_f64.exp() + 2.0_f64.exp()).ln();
+
+        let normalizer_b = (3.0_f64.exp() + 4.0_f64.exp()).ln();
+
+        let expected_0 = (1.0 - normalizer_a) + (3.0 - normalizer_b);
+
+        let expected_1 = (2.0 - normalizer_a) + (4.0 - normalizer_b);
+
+        assert!((belief.data()[0] - expected_0).abs() < 1e-10);
+        assert!((belief.data()[1] - expected_1).abs() < 1e-10);
     }
 
     #[test]

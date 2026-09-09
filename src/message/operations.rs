@@ -1,25 +1,128 @@
-use crate::factor::{FactorKind, FactorOps};
-use crate::semiring::Semiring;
+use crate::factor::{DenseFactor, Factor, FactorKind, FactorOps, FactorResidual, UnaryFactor};
+use crate::semiring::{LogMaxProduct, LogSumProduct, Semiring};
 
 use super::Message;
 
-/// Accumulates a message into an optional factor.
-///
-/// If no factor has been accumulated yet, the message's factor initializes
-/// the accumulator. Otherwise, the message is combined with the accumulated
-/// factor using the operations defined for the selected semiring.
-///
-/// The message is borrowed from message storage. Its underlying factor is
-/// cloned only when ownership is required by [`FactorOps::combine`].
-pub(crate) fn combine_message<S>(accumulator: Option<FactorKind>, message: &Message) -> FactorKind
+/// Operations used to manipulate messages under a particular semiring.
+pub(crate) trait MessageOps<S>
 where
     S: Semiring,
     FactorKind: FactorOps<S>,
 {
-    match accumulator {
-        None => message.factor().clone(),
+    /// Combines a message with an accumulated factor.
+    ///
+    /// If no factor has been accumulated, the message factor becomes the
+    /// initial value.
+    fn combine(accumulator: Option<FactorKind>, message: &Message) -> FactorKind {
+        match accumulator {
+            None => message.factor().clone(),
+            Some(factor) => <FactorKind as FactorOps<S>>::combine(factor, message.factor().clone()),
+        }
+    }
 
-        Some(factor) => <FactorKind as FactorOps<S>>::combine(factor, message.factor().clone()),
+    /// Normalizes the message under this semiring.
+    fn normalize(self) -> Self;
+
+    /// Returns the maximum absolute difference between corresponding
+    /// log-values in two messages.
+    fn residual(&self, other: &Self) -> f64;
+}
+
+fn log_sum_exp(values: impl Iterator<Item = f64>) -> f64 {
+    let values: Vec<_> = values.collect();
+
+    let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+
+    if max == f64::NEG_INFINITY {
+        return max;
+    }
+
+    max + values
+        .iter()
+        .map(|value| (value - max).exp())
+        .sum::<f64>()
+        .ln()
+}
+
+impl MessageOps<LogSumProduct> for Message {
+    fn normalize(self) -> Self {
+        let factor = match self.into_factor() {
+            FactorKind::Unary(factor) => {
+                let normalizer = log_sum_exp(factor.data().iter().copied());
+
+                let data = factor
+                    .data()
+                    .iter()
+                    .map(|value| value - normalizer)
+                    .collect();
+
+                FactorKind::Unary(UnaryFactor::new(factor.var(), data))
+            }
+
+            FactorKind::Dense(factor) => {
+                let normalizer = log_sum_exp(factor.data().iter().copied());
+
+                let scope = factor.scope().to_vec();
+                let data = factor.data().mapv(|value| value - normalizer);
+
+                FactorKind::Dense(DenseFactor::new(scope, data))
+            }
+
+            FactorKind::Scalar(_) => {
+                unreachable!("messages must have exactly one variable")
+            }
+        };
+
+        Message::try_from(factor).expect("normalization must preserve message dimensionality")
+    }
+
+    fn residual(&self, other: &Self) -> f64 {
+        self.factor().residual(other.factor())
+    }
+}
+
+impl MessageOps<LogMaxProduct> for Message {
+    fn normalize(self) -> Self {
+        let factor = match self.into_factor() {
+            FactorKind::Unary(factor) => {
+                let normalizer = factor
+                    .data()
+                    .iter()
+                    .copied()
+                    .fold(f64::NEG_INFINITY, f64::max);
+
+                let data = factor
+                    .data()
+                    .iter()
+                    .map(|value| value - normalizer)
+                    .collect();
+
+                FactorKind::Unary(UnaryFactor::new(factor.var(), data))
+            }
+
+            FactorKind::Dense(factor) => {
+                let normalizer = factor
+                    .data()
+                    .iter()
+                    .copied()
+                    .fold(f64::NEG_INFINITY, f64::max);
+
+                let scope = factor.scope().to_vec();
+                let data = factor.data().mapv(|value| value - normalizer);
+
+                FactorKind::Dense(DenseFactor::new(scope, data))
+            }
+
+            FactorKind::Scalar(_) => {
+                unreachable!("messages must have exactly one variable")
+            }
+        };
+
+        Message::try_from(factor).expect("normalization must preserve message dimensionality")
+    }
+
+    fn residual(&self, other: &Self) -> f64 {
+        self.factor().residual(other.factor())
     }
 }
 
@@ -30,7 +133,7 @@ mod tests {
     use crate::semiring::LogSumProduct;
     use crate::variable::VariableId;
 
-    use super::combine_message;
+    use super::MessageOps;
 
     #[test]
     fn initializes_accumulator_from_message() {
@@ -40,7 +143,7 @@ mod tests {
 
         let message = Message::try_from(factor).expect("unary factor should be a valid message");
 
-        let result = combine_message::<LogSumProduct>(None, &message);
+        let result = <Message as MessageOps<LogSumProduct>>::combine(None, &message);
 
         match result {
             FactorKind::Unary(result) => {
@@ -63,7 +166,7 @@ mod tests {
         let message =
             Message::try_from(message_factor).expect("unary factor should be a valid message");
 
-        let result = combine_message::<LogSumProduct>(Some(accumulator), &message);
+        let result = <Message as MessageOps<LogSumProduct>>::combine(Some(accumulator), &message);
 
         match result {
             FactorKind::Unary(result) => {

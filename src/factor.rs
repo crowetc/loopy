@@ -1,23 +1,27 @@
-//! Factor representations and operations for factor graphs.
+//! Factor representations and operations.
 //!
-//! This module provides the core abstractions used to represent factors,
-//! factor graphs, and operations on factors.
+//! This module defines the core abstractions used to represent factors in a
+//! factor graph.
 //!
 //! A [`Factor`] represents a function over a set of variables identified by
-//! [`VariableId`]. Concrete factor types provide different representations
-//! and capabilities. For example, [`DenseFactor`] represents a discrete factor
-//! using a dense multidimensional array, while [`UnaryFactor`] represents a
-//! discrete factor over a single discrete variable.
+//! [`VariableId`]. Concrete factor types provide different representations for
+//! that function. For example, [`DenseFactor`] stores a discrete factor as a
+//! dense multidimensional array, while [`UnaryFactor`] represents a discrete
+//! factor over a single variable.
 //!
-//! [`FactorOps`] defines algebraic operations on factors, parameterized by a
-//! [`Semiring`]. This allows for multiple forms of the reduction and combination
-//! operations to be defined on a factor to support different inference problems.
+//! [`FactorOps`] defines semiring-dependent factor algebra. Implementations
+//! determine how factors are combined and reduced under a particular
+//! [`Semiring`], such as [`LogSumProduct`] or [`LogMaxProduct`].
 //!
-//! [`DiscreteFactor`] identifies factors whose variables are discrete and have
-//! finite cardinalities.
+//! [`FactorResidual`] defines a semiring-independent comparison between factors
+//! of the same representation. It is primarily used to measure changes between
+//! successive messages during iterative inference.
 //!
-//! The module also contains [`FactorGraph`], which represents the structure
-//! connecting variables and factors.
+//! [`DiscreteFactor`] identifies factors over finite discrete variables and
+//! exposes the cardinality associated with each variable in the factor's scope.
+//!
+//! [`FactorKind`] provides a common representation for the factor types
+//! supported by the library.
 
 pub mod dense_factor;
 pub mod factor_kind;
@@ -35,7 +39,9 @@ pub use unary_factor::UnaryFactor;
 pub use crate::semiring::{LogMaxProduct, LogSumProduct, Semiring};
 use crate::variable::VariableId;
 
-/// An identifier for a factor within a [`FactorGraph`].
+/// Identifies a factor within a factor graph.
+///
+/// A `FactorId` is a stable index assigned when a factor is added to the graph.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FactorId(usize);
 
@@ -50,13 +56,14 @@ impl FactorId {
     }
 }
 
-/// A factor in the sense used in probabilistic graphical models.
+/// A factor over a set of variables.
 ///
-/// A factor represents a function over the variables in its scope. The
-/// concrete representation and operations supported by a factor depend on
-/// its type.
+/// A factor represents a function whose arguments are the variables in its
+/// scope. Concrete factor types determine how that function is represented and
+/// which operations are supported.
 ///
-/// Factors are identified by the variables returned by [`Self::scope`].
+/// The order of variables returned by [`Self::scope`] defines the dimension
+/// ordering used by the factor representation.
 pub trait Factor {
     /// Variables in the factor's scope.
     fn scope(&self) -> &[VariableId];
@@ -67,27 +74,50 @@ pub trait Factor {
     }
 }
 
-/// Operations supported by a factor under a particular inference regime.
+/// Semiring-dependent operations supported by a factor.
 ///
-/// The semiring identifies the inference regime under which the operations
-/// are performed. Factor implementations provide the concrete behavior for
-/// each supported semiring.
+/// The type parameter `S` identifies the inference algebra under which the
+/// operations are performed. A concrete factor implements this trait for each
+/// semiring it supports.
 ///
-/// For example, [`LogSumProduct`] represents sum-product inference in
-/// log-space, while [`LogMaxProduct`] represents max-product inference in
-/// log-space.
+/// For example, under [`LogSumProduct`], reduction marginalizes variables using
+/// log-sum-exp, while under [`LogMaxProduct`] it eliminates variables using a
+/// maximum.
+///
+/// Both operations consume the factor and return a [`FactorKind`] because the
+/// resulting representation may differ from the input. In particular,
+/// reduction may lower the dimensionality of a factor and combination may
+/// increase it.
 pub trait FactorOps<S: Semiring>: Factor {
-    /// Reduce the factor by eliminating the given variables.
+    /// Eliminates the specified variables from the factor.
+    ///
+    /// Variables not present in the factor's scope have no effect.
     fn reduce(self, vars: &[VariableId]) -> FactorKind;
 
-    /// Combine this factor with another factor.
+    /// Combines this factor with another factor under semiring `S`.
+    ///
+    /// The resulting factor has scope equal to the union of the two input
+    /// scopes.
     fn combine(self, other: FactorKind) -> FactorKind;
 }
 
-/// A factor over discrete variables with finite cardinalities.
+/// Measures the difference between two factors of the same representation.
 ///
-/// The cardinality at position `i` corresponds to the variable at position
-/// `i` in [`Factor::scope`].
+/// Residuals are independent of the inference semiring and are intended for
+/// comparing successive values of the same logical factor or message.
+///
+/// Implementations assume that `self` and `other` have compatible scopes and
+/// representations. Violating those invariants is considered a programming
+/// error.
+pub trait FactorResidual: Factor {
+    /// Returns the maximum absolute difference between corresponding values.
+    fn residual(&self, other: &Self) -> f64;
+}
+
+/// A factor over finite discrete variables.
+///
+/// The cardinality at position `i` corresponds to the variable at position `i`
+/// in [`Factor::scope`].
 pub trait DiscreteFactor: Factor {
     /// Cardinalities of all variables in scope.
     fn card(&self) -> &[usize];

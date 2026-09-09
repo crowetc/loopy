@@ -11,7 +11,9 @@ use crate::semiring::{LogMaxProduct, LogSumProduct};
 use crate::variable::VariableId;
 
 use super::log_utils::{lse_finalize, lse_update};
-use super::{DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor, UnaryFactor};
+use super::{
+    DiscreteFactor, Factor, FactorKind, FactorOps, FactorResidual, ScalarFactor, UnaryFactor,
+};
 
 /// Dense table-based factor over discrete variables (log-space).
 #[derive(Clone, Debug)]
@@ -429,6 +431,28 @@ impl Factor for DenseFactor {
 impl DiscreteFactor for DenseFactor {
     fn card(&self) -> &[usize] {
         self.data.shape()
+    }
+}
+
+impl FactorResidual for DenseFactor {
+    fn residual(&self, other: &Self) -> f64 {
+        assert_eq!(
+            self.scope(),
+            other.scope(),
+            "residual requires matching scope"
+        );
+
+        assert_eq!(
+            self.data().shape(),
+            other.data().shape(),
+            "residual requires matching shape"
+        );
+
+        self.data()
+            .iter()
+            .zip(other.data().iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max)
     }
 }
 

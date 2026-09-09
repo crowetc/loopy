@@ -14,7 +14,7 @@ mod store;
 
 pub(crate) use directed_edge::{DirectedEdge, Endpoint};
 pub(crate) use message::Message;
-pub(crate) use operations::combine_message;
+pub(crate) use operations::MessageOps;
 pub(crate) use store::MessageStore;
 
 /// Stable identifier for a directed message in a belief-propagation state.

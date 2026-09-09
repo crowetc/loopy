@@ -9,7 +9,9 @@ use crate::semiring::{LogMaxProduct, LogSumProduct};
 use crate::variable::VariableId;
 
 use super::log_utils::lse_two_pass;
-use super::{DenseFactor, DiscreteFactor, Factor, FactorKind, FactorOps, ScalarFactor};
+use super::{
+    DenseFactor, DiscreteFactor, Factor, FactorKind, FactorOps, FactorResidual, ScalarFactor,
+};
 
 /// A unary factor over a single discrete variable (log-space).
 ///
@@ -136,6 +138,19 @@ impl Factor for UnaryFactor {
 impl DiscreteFactor for UnaryFactor {
     fn card(&self) -> &[usize] {
         &self.card
+    }
+}
+
+impl FactorResidual for UnaryFactor {
+    fn residual(&self, other: &Self) -> f64 {
+        assert_eq!(self.var(), other.var());
+        assert_eq!(self.data().len(), other.data().len());
+
+        self.data()
+            .iter()
+            .zip(other.data())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max)
     }
 }
 
