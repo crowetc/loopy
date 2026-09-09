@@ -10,7 +10,7 @@ use crate::variable::VariableId;
 
 use super::log_utils::lse_two_pass;
 use super::{
-    DenseFactor, DiscreteFactor, Factor, FactorKind, FactorOps, FactorDistance, ScalarFactor,
+    DenseFactor, DiscreteFactor, Factor, FactorKind, FactorNormalize, FactorOps, FactorDistance, ScalarFactor,
 };
 
 /// A unary factor over a single discrete variable (log-space).
@@ -219,6 +219,38 @@ where
                 FactorKind::Unary(UnaryFactor::new(self.var, data))
             }
         }
+    }
+}
+
+impl FactorNormalize<LogSumProduct> for UnaryFactor {
+    fn normalize(self) -> Self {
+        let normalizer = lse_two_pass(self.data());
+
+        let data = self
+            .data()
+            .iter()
+            .map(|value| value - normalizer)
+            .collect();
+
+        UnaryFactor::new(self.var(), data)
+    }
+}
+
+impl FactorNormalize<LogMaxProduct> for UnaryFactor {
+    fn normalize(self) -> Self {
+        let normalizer = self
+            .data()
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
+
+        let data = self
+            .data()
+            .iter()
+            .map(|value| value - normalizer)
+            .collect();
+
+        UnaryFactor::new(self.var(), data)
     }
 }
 

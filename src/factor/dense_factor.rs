@@ -15,9 +15,9 @@ use ndarray::{ArrayD, IxDyn};
 use crate::semiring::{LogMaxProduct, LogSumProduct};
 use crate::variable::VariableId;
 
-use super::log_utils::{lse_finalize, lse_update};
+use super::log_utils::{lse, lse_finalize, lse_update};
 use super::{
-    DiscreteFactor, Factor, FactorKind, FactorOps, FactorDistance, ScalarFactor, UnaryFactor,
+    DiscreteFactor, Factor, FactorKind, FactorNormalize, FactorOps, FactorDistance, ScalarFactor, UnaryFactor,
 };
 
 /// A dense factor over finite discrete variables.
@@ -510,6 +510,32 @@ impl FactorOps<LogMaxProduct> for DenseFactor {
                 FactorKind::Dense(DenseFactor::new(self.scope, data))
             }
         }
+    }
+}
+
+impl FactorNormalize<LogSumProduct> for DenseFactor {
+    fn normalize(self) -> Self {
+        let normalizer = lse(self.data().iter().copied());
+
+        let scope = self.scope().to_vec();
+        let data = self.data().mapv(|value| value - normalizer);
+
+        DenseFactor::new(scope, data)
+    }
+}
+
+impl FactorNormalize<LogMaxProduct> for DenseFactor {
+    fn normalize(self) -> Self {
+        let normalizer = self
+            .data()
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
+
+        let scope = self.scope().to_vec();
+        let data = self.data().mapv(|value| value - normalizer);
+
+        DenseFactor::new(scope, data)
     }
 }
 

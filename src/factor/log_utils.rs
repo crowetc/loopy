@@ -26,6 +26,17 @@ pub(crate) fn lse_finalize(cur_max: f64, cur_sum: f64) -> f64 {
     }
 }
 
+pub(crate) fn lse(values: impl IntoIterator<Item = f64>) -> f64 {
+    let mut cur_max = f64::NEG_INFINITY;
+    let mut cur_sum = 0.0;
+
+    for x in values {
+        lse_update(x, &mut cur_max, &mut cur_sum);
+    }
+
+    lse_finalize(cur_max, cur_sum)
+}
+
 /// Two-pass log-sum-exp over a slice of log-values.
 /// Returns log(sum(exp(slice))).
 #[inline]

@@ -1,7 +1,7 @@
 use crate::semiring::Semiring;
 use crate::variable::VariableId;
 
-use super::{DenseFactor, Factor, FactorOps, FactorDistance, ScalarFactor, UnaryFactor};
+use super::{DenseFactor, Factor, FactorNormalize, FactorOps, FactorDistance, ScalarFactor, UnaryFactor};
 
 /// A concrete factor representation supported by the library.
 ///
@@ -87,6 +87,21 @@ where
             FactorKind::Scalar(s) => <ScalarFactor as FactorOps<S>>::combine(s, other),
 
             FactorKind::Unary(u) => <UnaryFactor as FactorOps<S>>::combine(u, other),
+        }
+    }
+}
+
+impl<S: Semiring> FactorNormalize<S> for FactorKind
+where
+    DenseFactor: FactorNormalize<S>,
+    ScalarFactor: FactorNormalize<S>,
+    UnaryFactor: FactorNormalize<S>,
+{
+    fn normalize(self) -> Self {
+        match self {
+            Self::Dense(factor) => Self::Dense(factor.normalize()),
+            Self::Scalar(factor) => Self::Scalar(factor.normalize()),
+            Self::Unary(factor) => Self::Unary(factor.normalize()),
         }
     }
 }

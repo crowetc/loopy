@@ -6,7 +6,7 @@
 use crate::semiring::{LogMaxProduct, LogSumProduct};
 use crate::variable::VariableId;
 
-use super::{DenseFactor, Factor, FactorKind, FactorOps, FactorDistance, UnaryFactor};
+use super::{DenseFactor, Factor, FactorKind, FactorNormalize, FactorOps, FactorDistance, UnaryFactor};
 
 /// A scalar factor (log-space).
 ///
@@ -96,5 +96,17 @@ impl FactorOps<LogMaxProduct> for ScalarFactor {
                 <DenseFactor as FactorOps<LogMaxProduct>>::combine(dense, FactorKind::Scalar(self))
             }
         }
+    }
+}
+
+impl FactorNormalize<LogSumProduct> for ScalarFactor {
+    fn normalize(self) -> Self {
+        ScalarFactor::new(0.0)
+    }
+}
+
+impl FactorNormalize<LogMaxProduct> for ScalarFactor {
+    fn normalize(self) -> Self {
+        ScalarFactor::new(0.0)
     }
 }

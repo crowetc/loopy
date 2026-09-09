@@ -74,6 +74,19 @@ pub trait Factor {
     }
 }
 
+/// Measures the difference between two factors of the same representation.
+///
+/// Residuals are independent of the inference semiring and are intended for
+/// comparing successive values of the same logical factor or message.
+///
+/// Implementations assume that `self` and `other` have compatible scopes and
+/// representations. Violating those invariants is considered a programming
+/// error.
+pub trait FactorDistance: Factor {
+    /// Returns the maximum absolute difference between corresponding values.
+    fn distance(&self, other: &Self) -> f64;
+}
+
 /// Semiring-dependent operations supported by a factor.
 ///
 /// The type parameter `S` identifies the inference algebra under which the
@@ -101,17 +114,10 @@ pub trait FactorOps<S: Semiring>: Factor {
     fn combine(self, other: FactorKind) -> FactorKind;
 }
 
-/// Measures the difference between two factors of the same representation.
-///
-/// Residuals are independent of the inference semiring and are intended for
-/// comparing successive values of the same logical factor or message.
-///
-/// Implementations assume that `self` and `other` have compatible scopes and
-/// representations. Violating those invariants is considered a programming
-/// error.
-pub trait FactorDistance: Factor {
-    /// Returns the maximum absolute difference between corresponding values.
-    fn distance(&self, other: &Self) -> f64;
+/// Normalization of a factor under a particular semiring.
+pub trait FactorNormalize<S: Semiring>: Factor {
+    /// Returns the normalized factor.
+    fn normalize(self) -> Self;
 }
 
 /// A factor over finite discrete variables.
