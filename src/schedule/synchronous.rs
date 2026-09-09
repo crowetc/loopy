@@ -1,6 +1,6 @@
 use crate::belief_state::BeliefState;
-use crate::factor::{FactorDistance, FactorId, FactorKind, FactorOps};
-use crate::message::{Message, MessageOps};
+use crate::factor::{FactorDistance, FactorId, FactorKind, FactorNormalize, FactorOps};
+use crate::message::Message;
 use crate::semiring::Semiring;
 
 use super::Schedule;
@@ -18,8 +18,7 @@ impl Synchronous {
 impl<S> Schedule<S> for Synchronous
 where
     S: Semiring,
-    FactorKind: FactorOps<S>,
-    Message: MessageOps<S>,
+    FactorKind: FactorOps<S> + FactorNormalize<S>,
 {
     fn step(&mut self, state: &mut BeliefState<S>) -> f64 {
         let mut message_ids = Vec::new();
@@ -37,7 +36,10 @@ where
             .filter_map(|id| {
                 let message = compute_message::<S>(state, id)?;
 
-                let message = <Message as MessageOps<S>>::normalize(message);
+                let factor = <FactorKind as FactorNormalize<S>>::normalize(message.into_factor());
+
+                let message = Message::try_from(factor)
+                    .expect("normalization must preserve message dimensionality");
 
                 let residual = match state.messages().get(id) {
                     Some(previous) => message.factor().distance(previous.factor()),

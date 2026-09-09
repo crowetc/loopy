@@ -1,13 +1,12 @@
 use crate::belief_state::BeliefState;
 use crate::factor::{Factor, FactorKind, FactorOps};
-use crate::message::{Endpoint, Message, MessageId, MessageOps};
+use crate::message::{Endpoint, Message, MessageId};
 use crate::semiring::Semiring;
 
 pub(crate) fn compute_message<S>(state: &BeliefState<S>, message_id: MessageId) -> Option<Message>
 where
     S: Semiring,
     FactorKind: FactorOps<S>,
-    Message: MessageOps<S>,
 {
     let edge = state.messages().edge(message_id);
 
@@ -24,7 +23,6 @@ fn variable_to_factor<S>(state: &BeliefState<S>, message_id: MessageId) -> Optio
 where
     S: Semiring,
     FactorKind: FactorOps<S>,
-    Message: MessageOps<S>,
 {
     let edge = state.messages().edge(message_id);
 
@@ -71,7 +69,6 @@ fn factor_to_variable<S>(state: &BeliefState<S>, message_id: MessageId) -> Optio
 where
     S: Semiring,
     FactorKind: FactorOps<S>,
-    Message: MessageOps<S>,
 {
     let edge = state.messages().edge(message_id);
 
