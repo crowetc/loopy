@@ -40,7 +40,7 @@ where
                 let message = <Message as MessageOps<S>>::normalize(message);
 
                 let residual = match state.messages().get(id) {
-                    Some(previous) => <Message as MessageOps<S>>::residual(&message, previous),
+                    Some(previous) => <Message as MessageOps<S>>::distance(&message, previous),
 
                     None => f64::INFINITY,
                 };

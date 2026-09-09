@@ -13,7 +13,7 @@
 //! determine how factors are combined and reduced under a particular
 //! [`Semiring`], such as [`LogSumProduct`] or [`LogMaxProduct`].
 //!
-//! [`FactorResidual`] defines a semiring-independent comparison between factors
+//! [`FactorDistance`] defines a semiring-independent comparison between factors
 //! of the same representation. It is primarily used to measure changes between
 //! successive messages during iterative inference.
 //!
@@ -109,9 +109,9 @@ pub trait FactorOps<S: Semiring>: Factor {
 /// Implementations assume that `self` and `other` have compatible scopes and
 /// representations. Violating those invariants is considered a programming
 /// error.
-pub trait FactorResidual: Factor {
+pub trait FactorDistance: Factor {
     /// Returns the maximum absolute difference between corresponding values.
-    fn residual(&self, other: &Self) -> f64;
+    fn distance(&self, other: &Self) -> f64;
 }
 
 /// A factor over finite discrete variables.

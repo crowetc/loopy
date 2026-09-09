@@ -6,7 +6,7 @@
 use crate::semiring::{LogMaxProduct, LogSumProduct};
 use crate::variable::VariableId;
 
-use super::{DenseFactor, Factor, FactorKind, FactorOps, FactorResidual, UnaryFactor};
+use super::{DenseFactor, Factor, FactorKind, FactorOps, FactorDistance, UnaryFactor};
 
 /// A scalar factor (log-space).
 ///
@@ -46,8 +46,8 @@ impl Factor for ScalarFactor {
     }
 }
 
-impl FactorResidual for ScalarFactor {
-    fn residual(&self, other: &Self) -> f64 {
+impl FactorDistance for ScalarFactor {
+    fn distance(&self, other: &Self) -> f64 {
         (self.value() - other.value()).abs()
     }
 }

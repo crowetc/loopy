@@ -10,7 +10,7 @@ use crate::variable::VariableId;
 
 use super::log_utils::lse_two_pass;
 use super::{
-    DenseFactor, DiscreteFactor, Factor, FactorKind, FactorOps, FactorResidual, ScalarFactor,
+    DenseFactor, DiscreteFactor, Factor, FactorKind, FactorOps, FactorDistance, ScalarFactor,
 };
 
 /// A unary factor over a single discrete variable (log-space).
@@ -141,8 +141,8 @@ impl DiscreteFactor for UnaryFactor {
     }
 }
 
-impl FactorResidual for UnaryFactor {
-    fn residual(&self, other: &Self) -> f64 {
+impl FactorDistance for UnaryFactor {
+    fn distance(&self, other: &Self) -> f64 {
         assert_eq!(self.var(), other.var());
         assert_eq!(self.data().len(), other.data().len());
 

@@ -1,7 +1,7 @@
 use crate::semiring::Semiring;
 use crate::variable::VariableId;
 
-use super::{DenseFactor, Factor, FactorOps, FactorResidual, ScalarFactor, UnaryFactor};
+use super::{DenseFactor, Factor, FactorOps, FactorDistance, ScalarFactor, UnaryFactor};
 
 /// A concrete factor representation supported by the library.
 ///
@@ -52,12 +52,12 @@ impl Factor for FactorKind {
     }
 }
 
-impl FactorResidual for FactorKind {
-    fn residual(&self, other: &Self) -> f64 {
+impl FactorDistance for FactorKind {
+    fn distance(&self, other: &Self) -> f64 {
         match (self, other) {
-            (Self::Unary(a), Self::Unary(b)) => a.residual(b),
-            (Self::Dense(a), Self::Dense(b)) => a.residual(b),
-            (Self::Scalar(a), Self::Scalar(b)) => a.residual(b),
+            (Self::Unary(a), Self::Unary(b)) => a.distance(b),
+            (Self::Dense(a), Self::Dense(b)) => a.distance(b),
+            (Self::Scalar(a), Self::Scalar(b)) => a.distance(b),
 
             _ => panic!("residual requires matching factor representations"),
         }
