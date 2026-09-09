@@ -9,9 +9,11 @@
 //! dense multidimensional array, while [`UnaryFactor`] represents a discrete
 //! factor over a single variable.
 //!
-//! [`FactorOps`] defines semiring-dependent factor algebra. Implementations
-//! determine how factors are combined and reduced under a particular
-//! [`Semiring`], such as [`LogSumProduct`] or [`LogMaxProduct`].
+//! [`FactorOps`] defines semiring-dependent factor algebra, including
+//! combination and reduction.
+//!
+//! [`FactorNormalize`] defines semiring-dependent normalization for factor
+//! representations that support it.
 //!
 //! [`FactorDistance`] defines a semiring-independent comparison between factors
 //! of the same representation. It is primarily used to measure changes between
@@ -36,7 +38,7 @@ pub use factor_kind::FactorKind;
 pub use scalar_factor::ScalarFactor;
 pub use unary_factor::UnaryFactor;
 
-pub use crate::semiring::{LogMaxProduct, LogSumProduct, Semiring};
+use crate::semiring::Semiring;
 use crate::variable::VariableId;
 
 /// Identifies a factor within a factor graph.
@@ -50,7 +52,7 @@ impl FactorId {
         Self(index)
     }
 
-    /// Return the index underlying this identifier.
+    /// Returns the index underlying this identifier.
     pub fn index(self) -> usize {
         self.0
     }
@@ -76,14 +78,14 @@ pub trait Factor {
 
 /// Measures the difference between two factors of the same representation.
 ///
-/// Residuals are independent of the inference semiring and are intended for
-/// comparing successive values of the same logical factor or message.
+/// The distance is independent of the inference semiring and can be used to
+/// compare successive values of the same logical factor or message.
 ///
 /// Implementations assume that `self` and `other` have compatible scopes and
 /// representations. Violating those invariants is considered a programming
 /// error.
 pub trait FactorDistance: Factor {
-    /// Returns the maximum absolute difference between corresponding values.
+    /// Returns the distance between corresponding factors.
     fn distance(&self, other: &Self) -> f64;
 }
 
@@ -114,7 +116,13 @@ pub trait FactorOps<S: Semiring>: Factor {
     fn combine(self, other: FactorKind) -> FactorKind;
 }
 
-/// Normalization of a factor under a particular semiring.
+/// Semiring-dependent normalization supported by a factor.
+///
+/// Normalization rescales a factor according to the selected semiring while
+/// preserving its scope and representation.
+///
+/// Unlike [`FactorOps`], normalization is an optional capability and need not
+/// be implemented by every factor representation that supports factor algebra.
 pub trait FactorNormalize<S: Semiring>: Factor {
     /// Returns the normalized factor.
     fn normalize(self) -> Self;
