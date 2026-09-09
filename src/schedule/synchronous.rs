@@ -1,5 +1,5 @@
 use crate::belief_state::BeliefState;
-use crate::factor::{FactorId, FactorKind, FactorOps};
+use crate::factor::{FactorDistance, FactorId, FactorKind, FactorOps};
 use crate::message::{Message, MessageOps};
 use crate::semiring::Semiring;
 
@@ -40,8 +40,7 @@ where
                 let message = <Message as MessageOps<S>>::normalize(message);
 
                 let residual = match state.messages().get(id) {
-                    Some(previous) => <Message as MessageOps<S>>::distance(&message, previous),
-
+                    Some(previous) => message.factor().distance(previous.factor()),
                     None => f64::INFINITY,
                 };
 

@@ -1,4 +1,4 @@
-use crate::factor::{DenseFactor, Factor, FactorKind, FactorOps, FactorDistance, UnaryFactor};
+use crate::factor::{DenseFactor, Factor, FactorKind, FactorOps, UnaryFactor};
 use crate::semiring::{LogMaxProduct, LogSumProduct, Semiring};
 
 use super::Message;
@@ -11,10 +11,6 @@ where
 {
     /// Normalizes the message under this semiring.
     fn normalize(self) -> Self;
-
-    /// Returns the maximum absolute difference between corresponding
-    /// log-values in two messages.
-    fn distance(&self, other: &Self) -> f64;
 }
 
 fn log_sum_exp(values: impl Iterator<Item = f64>) -> f64 {
@@ -64,10 +60,6 @@ impl MessageOps<LogSumProduct> for Message {
 
         Message::try_from(factor).expect("normalization must preserve message dimensionality")
     }
-
-    fn distance(&self, other: &Self) -> f64 {
-        self.factor().distance(other.factor())
-    }
 }
 
 impl MessageOps<LogMaxProduct> for Message {
@@ -108,9 +100,5 @@ impl MessageOps<LogMaxProduct> for Message {
         };
 
         Message::try_from(factor).expect("normalization must preserve message dimensionality")
-    }
-
-    fn distance(&self, other: &Self) -> f64 {
-        self.factor().distance(other.factor())
     }
 }
