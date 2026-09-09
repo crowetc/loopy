@@ -94,10 +94,7 @@ where
                 None => message.factor().clone(),
 
                 Some(factor) => {
-                    <FactorKind as FactorOps<S>>::combine(
-                        factor,
-                        message.factor().clone(),
-                    )
+                    <FactorKind as FactorOps<S>>::combine(factor, message.factor().clone())
                 }
             });
         }

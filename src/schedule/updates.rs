@@ -51,12 +51,7 @@ where
 
         accumulator = Some(match accumulator {
             None => message.factor().clone(),
-            Some(factor) => {
-                <FactorKind as FactorOps<S>>::combine(
-                    factor,
-                    message.factor().clone(),
-                )
-            }
+            Some(factor) => <FactorKind as FactorOps<S>>::combine(factor, message.factor().clone()),
         });
     }
 
@@ -102,10 +97,7 @@ where
             continue;
         };
 
-        result = <FactorKind as FactorOps<S>>::combine(
-            result,
-            message.factor().clone(),
-        );
+        result = <FactorKind as FactorOps<S>>::combine(result, message.factor().clone());
     }
 
     // Marginalize every variable except the destination.

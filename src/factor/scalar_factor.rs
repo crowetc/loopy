@@ -6,7 +6,9 @@
 use crate::semiring::{LogMaxProduct, LogSumProduct};
 use crate::variable::VariableId;
 
-use super::{DenseFactor, Factor, FactorKind, FactorNormalize, FactorOps, FactorDistance, UnaryFactor};
+use super::{
+    DenseFactor, Factor, FactorDistance, FactorKind, FactorNormalize, FactorOps, UnaryFactor,
+};
 
 /// A scalar factor (log-space).
 ///

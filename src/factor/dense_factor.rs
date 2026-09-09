@@ -17,7 +17,8 @@ use crate::variable::VariableId;
 
 use super::log_utils::{lse, lse_finalize, lse_update};
 use super::{
-    DiscreteFactor, Factor, FactorKind, FactorNormalize, FactorOps, FactorDistance, ScalarFactor, UnaryFactor,
+    DiscreteFactor, Factor, FactorDistance, FactorKind, FactorNormalize, FactorOps, ScalarFactor,
+    UnaryFactor,
 };
 
 /// A dense factor over finite discrete variables.
@@ -441,11 +442,7 @@ impl DiscreteFactor for DenseFactor {
 
 impl FactorDistance for DenseFactor {
     fn distance(&self, other: &Self) -> f64 {
-        assert_eq!(
-            self.scope,
-            other.scope,
-            "residual requires matching scopes"
-        );
+        assert_eq!(self.scope, other.scope, "residual requires matching scopes");
 
         assert_eq!(
             self.data.shape(),

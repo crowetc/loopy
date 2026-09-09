@@ -1,7 +1,9 @@
 use crate::semiring::Semiring;
 use crate::variable::VariableId;
 
-use super::{DenseFactor, Factor, FactorNormalize, FactorOps, FactorDistance, ScalarFactor, UnaryFactor};
+use super::{
+    DenseFactor, Factor, FactorDistance, FactorNormalize, FactorOps, ScalarFactor, UnaryFactor,
+};
 
 /// A concrete factor representation supported by the library.
 ///
@@ -15,8 +17,7 @@ use super::{DenseFactor, Factor, FactorNormalize, FactorOps, FactorDistance, Sca
 /// - [`FactorKind::Scalar`] - a scalar factor with no variables;
 /// - [`FactorKind::Unary`] - a factor over a single discrete variable.
 ///
-/// `FactorKind` delegates [`Factor`] and [`FactorOps`] operations to the
-/// contained factor.
+/// `FactorKind` delegates factor operations to the contained representation.
 #[derive(Clone, Debug)]
 pub enum FactorKind {
     Dense(DenseFactor),
@@ -45,9 +46,9 @@ impl From<UnaryFactor> for FactorKind {
 impl Factor for FactorKind {
     fn scope(&self) -> &[VariableId] {
         match self {
-            FactorKind::Dense(d) => d.scope(),
-            FactorKind::Scalar(s) => s.scope(),
-            FactorKind::Unary(u) => u.scope(),
+            Self::Dense(factor) => factor.scope(),
+            Self::Scalar(factor) => factor.scope(),
+            Self::Unary(factor) => factor.scope(),
         }
     }
 }
@@ -59,7 +60,7 @@ impl FactorDistance for FactorKind {
             (Self::Dense(a), Self::Dense(b)) => a.distance(b),
             (Self::Scalar(a), Self::Scalar(b)) => a.distance(b),
 
-            _ => panic!("residual requires matching factor representations"),
+            _ => panic!("distance requires matching factor representations"),
         }
     }
 }
@@ -72,21 +73,17 @@ where
 {
     fn reduce(self, vars: &[VariableId]) -> FactorKind {
         match self {
-            FactorKind::Dense(d) => <DenseFactor as FactorOps<S>>::reduce(d, vars),
-
-            FactorKind::Scalar(s) => <ScalarFactor as FactorOps<S>>::reduce(s, vars),
-
-            FactorKind::Unary(u) => <UnaryFactor as FactorOps<S>>::reduce(u, vars),
+            Self::Dense(factor) => <DenseFactor as FactorOps<S>>::reduce(factor, vars),
+            Self::Scalar(factor) => <ScalarFactor as FactorOps<S>>::reduce(factor, vars),
+            Self::Unary(factor) => <UnaryFactor as FactorOps<S>>::reduce(factor, vars),
         }
     }
 
     fn combine(self, other: FactorKind) -> FactorKind {
         match self {
-            FactorKind::Dense(d) => <DenseFactor as FactorOps<S>>::combine(d, other),
-
-            FactorKind::Scalar(s) => <ScalarFactor as FactorOps<S>>::combine(s, other),
-
-            FactorKind::Unary(u) => <UnaryFactor as FactorOps<S>>::combine(u, other),
+            Self::Dense(factor) => <DenseFactor as FactorOps<S>>::combine(factor, other),
+            Self::Scalar(factor) => <ScalarFactor as FactorOps<S>>::combine(factor, other),
+            Self::Unary(factor) => <UnaryFactor as FactorOps<S>>::combine(factor, other),
         }
     }
 }
