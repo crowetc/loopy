@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::factor::{Factor, FactorId, FactorKind, FactorOps};
 use crate::factor_graph::{FactorGraph, GraphError};
-use crate::message::{Message, MessageOps, MessageStore};
+use crate::message::MessageStore;
 use crate::semiring::Semiring;
 use crate::variable::{Variable, VariableId};
 
@@ -78,23 +78,31 @@ where
     pub fn belief(&self, variable: VariableId) -> Result<Option<FactorKind>, BeliefError>
     where
         FactorKind: FactorOps<S>,
-        Message: MessageOps<S>,
     {
         if self.graph.variable(variable).is_none() {
             return Err(BeliefError::UnknownVariableId(variable));
         }
 
-        let mut accumulator = None;
+        let mut belief = None;
 
         for &message_id in self.messages.variable_in(variable) {
             let Some(message) = self.messages.get(message_id) else {
                 continue;
             };
 
-            accumulator = Some(<Message as MessageOps<S>>::combine(accumulator, message));
+            belief = Some(match belief {
+                None => message.factor().clone(),
+
+                Some(factor) => {
+                    <FactorKind as FactorOps<S>>::combine(
+                        factor,
+                        message.factor().clone(),
+                    )
+                }
+            });
         }
 
-        Ok(accumulator)
+        Ok(belief)
     }
 
     pub(crate) fn messages(&self) -> &MessageStore {

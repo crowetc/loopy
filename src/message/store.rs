@@ -48,6 +48,7 @@ impl MessageStore {
     /// Creates an empty message store.
     ///
     /// The returned store contains no messages or directed edges.
+    #[cfg(test)]
     fn new() -> Self {
         Self {
             messages: Vec::new(),
