@@ -1,8 +1,10 @@
-//! Unary factor: a factor over a single discrete variable (log-space).
+//! Unary discrete factor representation.
 //!
-//! A `UnaryFactor` stores:
-//! - `var`: the variable ID
-//! - `data`: log-potentials for each domain element
+//! A [`UnaryFactor`] represents a factor over a single finite discrete variable
+//! using a vector of log-space values.
+//!
+//! Each element corresponds to one state of the variable, and the vector length
+//! defines the variable's cardinality.
 use ndarray::{ArrayD, IxDyn};
 
 use crate::semiring::{LogMaxProduct, LogSumProduct};
@@ -14,9 +16,10 @@ use super::{
     ScalarFactor,
 };
 
-/// A unary factor over a single discrete variable (log-space).
+/// A unary factor over a single finite discrete variable.
 ///
-/// The underlying values are stored in log-space.
+/// Factor values are stored in log-space, with one value for each state of the
+/// variable.
 #[derive(Clone, Debug)]
 pub struct UnaryFactor {
     var: VariableId,
@@ -25,7 +28,7 @@ pub struct UnaryFactor {
 }
 
 impl UnaryFactor {
-    /// Create a unary factor for a variable with the given **log-space** data.
+    /// Creates a unary factor for a variable with the given log-space data.
     ///
     /// # Panics
     /// Panics if `data` is empty.
@@ -35,7 +38,7 @@ impl UnaryFactor {
         Self { var, data, card }
     }
 
-    /// Construct a unary factor from **linear-space** values.
+    /// Constructs a unary factor from linear-space values.
     ///
     /// # Panics
     /// Panics if `linear` is empty.
@@ -46,17 +49,17 @@ impl UnaryFactor {
         Self { var, data, card }
     }
 
-    /// Borrow the underlying log-space data.
+    /// Returns the factor values in log-space.
     pub fn data(&self) -> &[f64] {
         &self.data
     }
 
-    /// Return the variable ID.
+    /// Returns the variable identifier.
     pub fn var(&self) -> VariableId {
         self.var
     }
 
-    /// Consume and return the owned log-space vector.
+    /// Consumes the factor and returns its log-space values.
     pub fn into_data(self) -> Vec<f64> {
         self.data
     }
@@ -68,74 +71,66 @@ impl UnaryFactor {
     /// If they are over different variables, the result is a dense factor
     /// over the sorted union of the two variables.
     fn combine_unary(self, other: UnaryFactor) -> FactorKind {
-        let var1 = self.var;
-        let var2 = other.var;
+        let lhs_var = self.var;
+        let rhs_var = other.var;
 
-        // ------------------------------------------------------------
-        // Same variable -> unary result
-        // ------------------------------------------------------------
+        // Shared variable: result remains unary.
 
-        if var1 == var2 {
+        if lhs_var == rhs_var {
             assert_eq!(
                 self.card()[0],
                 other.card()[0],
                 "cardinality mismatch for variable {}",
-                var1
+                lhs_var
             );
 
             let data = self
                 .data
                 .iter()
                 .zip(other.data.iter())
-                .map(|(&a, &b)| a + b)
+                .map(|(&lhs, &rhs)| lhs + rhs)
                 .collect();
 
-            return FactorKind::Unary(UnaryFactor::new(var1, data));
+            return FactorKind::Unary(UnaryFactor::new(lhs_var, data));
         }
 
-        // ------------------------------------------------------------
-        // Different variables → dense result
-        //
-        // The output scope is always sorted.
-        // ------------------------------------------------------------
+        // Disjoint variables: result becomes a dense Cartesian product.
 
-        let (scope, first, second) = if var1 < var2 {
+        let (scope, lhs_data, rhs_data) = if lhs_var < rhs_var {
             (
-                vec![var1, var2],
+                vec![lhs_var, rhs_var],
                 self.data.as_slice(),
                 other.data.as_slice(),
             )
         } else {
             (
-                vec![var2, var1],
+                vec![rhs_var, lhs_var],
                 other.data.as_slice(),
                 self.data.as_slice(),
             )
         };
 
-        let mut output = ArrayD::<f64>::zeros(IxDyn(&[first.len(), second.len()]));
+        let mut out_data = ArrayD::<f64>::zeros(IxDyn(&[lhs_data.len(), rhs_data.len()]));
 
-        let mut output_iter = output.iter_mut();
+        let mut out_iter = out_data.iter_mut();
 
-        for &a in first {
-            for &b in second {
-                *output_iter
+        for &lhs in lhs_data {
+            for &rhs in rhs_data {
+                *out_iter
                     .next()
-                    .expect("output iterator length must match shape") = a + b;
+                    .expect("output iterator length must match shape") = lhs + rhs;
             }
         }
-        FactorKind::Dense(DenseFactor::new(scope, output))
+        FactorKind::Dense(DenseFactor::new(scope, out_data))
     }
 }
 
-/// Implement `Factor` trait
 impl Factor for UnaryFactor {
     fn scope(&self) -> &[VariableId] {
         std::slice::from_ref(&self.var)
     }
 }
 
-/// Implement `DiscreteFactor` trait.
 impl DiscreteFactor for UnaryFactor {
     fn card(&self) -> &[usize] {
         &self.card
@@ -144,13 +139,21 @@ impl DiscreteFactor for UnaryFactor {
 
 impl FactorDistance for UnaryFactor {
     fn distance(&self, other: &Self) -> f64 {
-        assert_eq!(self.var(), other.var());
-        assert_eq!(self.data().len(), other.data().len());
+        assert_eq!(
+            self.var(),
+            other.var(),
+            "distance requires matching variables"
+        );
+        assert_eq!(
+            self.data().len(),
+            other.data().len(),
+            "distance requires matching cardinalities"
+        );
 
         self.data()
             .iter()
             .zip(other.data())
-            .map(|(a, b)| (a - b).abs())
+            .map(|(lhs, rhs)| (lhs - rhs).abs())
             .fold(0.0, f64::max)
     }
 }
@@ -160,15 +163,14 @@ where
     DenseFactor: FactorOps<LogSumProduct>,
     ScalarFactor: FactorOps<LogSumProduct>,
 {
-    /// reduce variables `vars`.
+    /// Reduces the factor over the specified variables.
     ///
-    /// - If this unary variable is eliminated, return a unary factor with a
-    ///   single log-sum-exp value.
-    /// - Otherwise, return the factor unchanged.
+    /// If this factor's variable is reduced, the result is a scalar factor.
+    /// Otherwise, the factor is returned unchanged.
     fn reduce(self, vars: &[VariableId]) -> FactorKind {
         if vars.contains(&self.var) {
-            let total = lse_two_pass(self.data());
-            FactorKind::Scalar(ScalarFactor::new(total))
+            let reduced = lse_two_pass(self.data());
+            FactorKind::Scalar(ScalarFactor::new(reduced))
         } else {
             FactorKind::Unary(self)
         }
@@ -196,13 +198,13 @@ where
 {
     fn reduce(self, vars: &[VariableId]) -> FactorKind {
         if vars.contains(&self.var) {
-            let total = self
+            let reduced = self
                 .data()
                 .iter()
                 .copied()
                 .fold(f64::NEG_INFINITY, f64::max);
 
-            FactorKind::Scalar(ScalarFactor::new(total))
+            FactorKind::Scalar(ScalarFactor::new(reduced))
         } else {
             FactorKind::Unary(self)
         }
@@ -227,7 +229,7 @@ impl FactorNormalize<LogSumProduct> for UnaryFactor {
     fn normalize(self) -> Self {
         let normalizer = lse_two_pass(self.data());
 
-        let data = self.data().iter().map(|value| value - normalizer).collect();
+        let data = self.data.iter().map(|value| value - normalizer).collect();
 
         UnaryFactor::new(self.var(), data)
     }
@@ -236,12 +238,12 @@ impl FactorNormalize<LogSumProduct> for UnaryFactor {
 impl FactorNormalize<LogMaxProduct> for UnaryFactor {
     fn normalize(self) -> Self {
         let normalizer = self
-            .data()
+            .data
             .iter()
             .copied()
             .fold(f64::NEG_INFINITY, f64::max);
 
-        let data = self.data().iter().map(|value| value - normalizer).collect();
+        let data = self.data.iter().map(|value| value - normalizer).collect();
 
         UnaryFactor::new(self.var(), data)
     }
@@ -485,6 +487,38 @@ mod tests {
                 assert_eq!(d.data(), &expected);
             }
             _ => panic!("Expected dense factor"),
+        }
+    }
+
+    //
+    // Normalize tests
+    //
+
+    #[test]
+    fn test_normalize_log_sum_product() {
+        let factor = UnaryFactor::from_linear(v(0), vec![2.0, 3.0]);
+
+        let normalized =
+            <UnaryFactor as FactorNormalize<LogSumProduct>>::normalize(factor);
+
+        let expected = [(2.0_f64 / 5.0).ln(), (3.0_f64 / 5.0).ln()];
+
+        for (actual, expected) in normalized.data().iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn test_normalize_log_max_product() {
+        let factor = UnaryFactor::from_linear(v(0), vec![2.0, 4.0]);
+
+        let normalized =
+            <UnaryFactor as FactorNormalize<LogMaxProduct>>::normalize(factor);
+
+        let expected = [(2.0_f64 / 4.0).ln(), 0.0];
+
+        for (actual, expected) in normalized.data().iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-12);
         }
     }
 }
