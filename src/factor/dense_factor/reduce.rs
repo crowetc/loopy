@@ -172,11 +172,7 @@ fn build_reduction(
 
     let kept_shape: Vec<usize> = idx_keep.iter().map(|&axis| shape[axis]).collect();
 
-    let kept_size = if kept_shape.is_empty() {
-        1
-    } else {
-        kept_shape.iter().product()
-    };
+    let kept_size = kept_shape.iter().product::<usize>();
 
     let elim_size = idx_marg.iter().map(|&axis| shape[axis]).product();
 

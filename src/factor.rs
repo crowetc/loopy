@@ -31,7 +31,6 @@ pub mod scalar_factor;
 pub mod unary_factor;
 
 mod log_utils;
-mod utils;
 
 pub use dense_factor::DenseFactor;
 pub use factor_kind::FactorKind;

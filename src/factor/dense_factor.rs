@@ -89,6 +89,50 @@ impl DenseFactor {
     pub fn into_scope(self) -> Vec<VariableId> {
         self.scope
     }
+
+    /// Converts this dense factor into the most specific factor representation
+    /// for its dimensionality.
+    ///
+    /// Zero-dimensional factors become [`ScalarFactor`]s, one-dimensional
+    /// factors become [`UnaryFactor`]s, and higher-dimensional factors remain
+    /// [`DenseFactor`]s.
+    fn into_factor_kind(self) -> FactorKind {
+        match self.ndim() {
+            0 => {
+                let value = self
+                    .data
+                    .iter()
+                    .copied()
+                    .next()
+                    .expect("zero-dimensional dense factor must contain one value");
+
+                FactorKind::Scalar(ScalarFactor::new(value))
+            }
+
+            1 => FactorKind::Unary(self.into_unary()),
+
+            _ => FactorKind::Dense(self),
+        }
+    }
+
+    /// Converts a one-dimensional dense factor into a unary factor.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the factor does not contain exactly one variable.
+    fn into_unary(self) -> UnaryFactor {
+        assert_eq!(
+            self.ndim(),
+            1,
+            "dense factor must be one-dimensional to convert to unary"
+        );
+
+        let (scope, data) = self.into_parts();
+        let var = scope[0];
+        let values = data.iter().copied().collect();
+
+        UnaryFactor::new(var, values)
+    }
 }
 
 impl Factor for DenseFactor {
@@ -123,15 +167,7 @@ impl FactorDistance for DenseFactor {
 
 impl FactorOps<LogSumProduct> for DenseFactor {
     fn reduce(self, vars: &[VariableId]) -> FactorKind {
-        let reduced = self.reduce_sum_kernel(vars);
-        match reduced.scope.len() {
-            0 => {
-                let val = reduced.data().iter().copied().next().unwrap();
-                FactorKind::Scalar(ScalarFactor::new(val))
-            }
-            1 => FactorKind::Unary(crate::factor::utils::dense_into_unary(reduced)),
-            _ => FactorKind::Dense(reduced),
-        }
+        self.reduce_sum_kernel(vars).into_factor_kind()
     }
 
     fn combine(self, other: FactorKind) -> FactorKind {
@@ -149,15 +185,7 @@ impl FactorOps<LogSumProduct> for DenseFactor {
 
 impl FactorOps<LogMaxProduct> for DenseFactor {
     fn reduce(self, vars: &[VariableId]) -> FactorKind {
-        let reduced = self.reduce_max_kernel(vars);
-        match reduced.scope.len() {
-            0 => {
-                let val = reduced.data().iter().copied().next().unwrap();
-                FactorKind::Scalar(ScalarFactor::new(val))
-            }
-            1 => FactorKind::Unary(crate::factor::utils::dense_into_unary(reduced)),
-            _ => FactorKind::Dense(reduced),
-        }
+        self.reduce_max_kernel(vars).into_factor_kind()
     }
 
     fn combine(self, other: FactorKind) -> FactorKind {
