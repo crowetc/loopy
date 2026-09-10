@@ -581,4 +581,34 @@ mod tests {
 
         assert_eq!(out.data(), &expected);
     }
+
+    #[test]
+    fn test_normalize_log_sum_product() {
+        let factor = DenseFactor::new(vec![v(0)], array![2.0_f64, 3.0].mapv(|x| x.ln()).into_dyn());
+
+        let normalized = <DenseFactor as FactorNormalize<LogSumProduct>>::normalize(factor);
+
+        let expected = [(2.0_f64 / 5.0).ln(), (3.0_f64 / 5.0).ln()];
+
+        for (actual, expected) in normalized.data().iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-12);
+        }
+
+        assert_eq!(normalized.scope(), &[v(0)]);
+    }
+
+    #[test]
+    fn test_normalize_log_max_product() {
+        let factor = DenseFactor::new(vec![v(0)], array![2.0_f64, 4.0].mapv(|x| x.ln()).into_dyn());
+
+        let normalized = <DenseFactor as FactorNormalize<LogMaxProduct>>::normalize(factor);
+
+        let expected = [(2.0_f64 / 4.0).ln(), 0.0];
+
+        for (actual, expected) in normalized.data().iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-12);
+        }
+
+        assert_eq!(normalized.scope(), &[v(0)]);
+    }
 }

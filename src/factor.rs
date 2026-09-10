@@ -135,3 +135,45 @@ pub trait DiscreteFactor: Factor {
     /// Cardinalities of all variables in scope.
     fn card(&self) -> &[usize];
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestFactor {
+        scope: Vec<VariableId>,
+    }
+
+    impl Factor for TestFactor {
+        fn scope(&self) -> &[VariableId] {
+            &self.scope
+        }
+    }
+
+    #[test]
+    fn factor_id_returns_index() {
+        let id = FactorId::new(3);
+
+        assert_eq!(id.index(), 3);
+    }
+
+    #[test]
+    fn ndim_returns_scope_length() {
+        let factor = TestFactor {
+            scope: vec![VariableId::new(0), VariableId::new(1), VariableId::new(2)],
+        };
+
+        assert_eq!(factor.ndim(), 3);
+    }
+
+    #[test]
+    fn ndim_is_zero_for_empty_scope() {
+        let factor = TestFactor { scope: vec![] };
+
+        assert_eq!(factor.ndim(), 0);
+    }
+}
