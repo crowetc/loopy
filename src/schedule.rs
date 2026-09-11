@@ -1,3 +1,5 @@
+//! Message-passing schedules and convergence control.
+
 mod synchronous;
 mod updates;
 
@@ -6,9 +8,13 @@ use crate::semiring::Semiring;
 
 pub use synchronous::Synchronous;
 
+/// Controls iterative belief propagation.
 #[derive(Clone, Copy, Debug)]
 pub struct RunOptions {
+    /// Maximum number of message-passing iterations.
     pub max_iterations: usize,
+
+    /// Residual threshold used to determine convergence.
     pub tolerance: f64,
 }
 
@@ -21,10 +27,16 @@ impl Default for RunOptions {
     }
 }
 
+/// Summary of a belief-propagation run.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RunResult {
+    /// Number of iterations executed.
     pub iterations: usize,
+
+    /// Whether the final residual satisfied the convergence tolerance.
     pub converged: bool,
+
+    /// Maximum message residual from the final iteration.
     pub residual: f64,
 }
 
@@ -38,6 +50,10 @@ where
     /// Returns the maximum message residual produced by the iteration.
     fn step(&mut self, state: &mut BeliefState<S>) -> f64;
 
+    /// Runs message passing until convergence or the iteration limit is reached.
+    ///
+    /// Convergence is reached when the maximum message residual produced by an
+    /// iteration is less than or equal to `options.tolerance`.
     fn run(&mut self, state: &mut BeliefState<S>, options: RunOptions) -> RunResult {
         let mut residual = f64::INFINITY;
 

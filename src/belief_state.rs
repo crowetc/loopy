@@ -12,6 +12,11 @@ pub enum BeliefError {
     UnknownVariableId(VariableId),
 }
 
+/// Inference state for a factor graph under semiring `S`.
+///
+/// A belief state owns the factor graph together with its associated message
+/// state. Variables and factors should be added through [`Self::extend`] and
+/// [`Self::apply`] so the graph and message topology remain synchronized.
 #[derive(Debug)]
 pub struct BeliefState<S> {
     graph: FactorGraph,
@@ -34,15 +39,14 @@ where
         }
     }
 
-    /// Returns the factor graph associated with this belief state.
+    /// Returns the underlying factor graph.
     pub fn graph(&self) -> &FactorGraph {
         &self.graph
     }
 
-    /// Extends the inference state with a new variable.
+    /// Adds a variable to the inference state.
     ///
-    /// Unlike [`FactorGraph::add_variable`], this updates both the underlying
-    /// factor graph and the associated message state.
+    /// Updates both the factor graph and its associated message topology.
     pub fn extend(&mut self, variable: Variable) -> Result<VariableId, GraphError> {
         let variable_id = self.graph.add_variable(variable)?;
 
@@ -51,11 +55,10 @@ where
         Ok(variable_id)
     }
 
-    /// Applies a new factor to the inference state.
+    /// Adds a factor to the inference state.
     ///
-    /// Unlike [`FactorGraph::add_factor`], this updates both the underlying
-    /// factor graph and the associated message state while preserving existing
-    /// messages.
+    /// Updates both the factor graph and its associated message topology while
+    /// preserving existing messages.
     pub fn apply<F>(&mut self, factor: F) -> Result<FactorId, GraphError>
     where
         F: Into<FactorKind>,
@@ -69,12 +72,13 @@ where
         Ok(factor_id)
     }
 
-    /// Returns the current raw belief for a variable.
+    /// Returns the current raw belief for `variable`.
     ///
-    /// The returned factor, when present, has scope exactly `[variable]`.
+    /// The belief is formed by combining all concrete incoming messages and,
+    /// when present, has scope exactly `[variable]`.
     ///
-    /// Returns `Ok(None)` when the variable is valid but has no concrete
-    /// incoming messages.
+    /// Returns `Ok(None)` when the variable exists but has no concrete incoming
+    /// messages.
     pub fn belief(&self, variable: VariableId) -> Result<Option<FactorKind>, BeliefError>
     where
         FactorKind: FactorOps<S>,
@@ -117,12 +121,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use ndarray::array;
+
+    use super::{BeliefError, BeliefState};
+
     use crate::factor::{DenseFactor, FactorKind, UnaryFactor};
+    use crate::factor_graph::FactorGraph;
     use crate::schedule::{Schedule, Synchronous};
     use crate::semiring::{LogMaxProduct, LogSumProduct};
-    use crate::variable::Variable;
-    use ndarray::array;
+    use crate::variable::{Variable, VariableId};
 
     fn binary_variable(name: &str) -> Variable {
         Variable::discrete(name, ["0", "1"])
@@ -140,10 +147,10 @@ mod tests {
             .add_variable(Variable::discrete("y", ["0", "1"]))
             .unwrap();
 
-        let factor = FactorKind::Dense(DenseFactor::new(
+        let factor = DenseFactor::new(
             vec![x, y],
             array![[1.0, 2.0], [3.0, 4.0]].into_dyn(),
-        ));
+        );
 
         let f = graph.add_factor(factor).unwrap();
 
@@ -178,10 +185,10 @@ mod tests {
 
         let mut state = BeliefState::<LogSumProduct>::from_graph(graph);
 
-        let factor = FactorKind::Dense(DenseFactor::new(
+        let factor = DenseFactor::new(
             vec![x, y],
             array![[1.0, 2.0], [3.0, 4.0]].into_dyn(),
-        ));
+        );
 
         let f = state.apply(factor).unwrap();
 
@@ -222,7 +229,6 @@ mod tests {
         let normalizer = (1.0_f64.exp() + 2.0_f64.exp()).ln();
 
         assert!((belief.data()[0] - (1.0 - normalizer)).abs() < 1e-10);
-
         assert!((belief.data()[1] - (2.0 - normalizer)).abs() < 1e-10);
     }
 
@@ -255,11 +261,9 @@ mod tests {
         };
 
         let normalizer_a = (1.0_f64.exp() + 2.0_f64.exp()).ln();
-
         let normalizer_b = (3.0_f64.exp() + 4.0_f64.exp()).ln();
 
         let expected_0 = (1.0 - normalizer_a) + (3.0 - normalizer_b);
-
         let expected_1 = (2.0 - normalizer_a) + (4.0 - normalizer_b);
 
         assert!((belief.data()[0] - expected_0).abs() < 1e-10);
