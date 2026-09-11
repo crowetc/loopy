@@ -1,16 +1,16 @@
 # Loopy
 
-Loopy is a Rust library for performing **loopy belief propagation (LBP)** on factor graphs. It provides clear abstractions and modular components for working with factorized functions, semirings, and message-passing algorithms.
+Loopy is a Rust library for performing **loopy belief propagation (LBP)** on factor graphs. It provides clear, modular abstractions for representing factorized functions and implementing message-passing inference.
 
 Factor graphs are used across many domains, including probabilistic inference, optimization, constraint satisfaction, coding theory, robotics, and computer vision. Loopy aims to support this breadth while remaining simple, expressive, and performant.
 
 ## Motivation
 
-Many real‑world problems involve a large global function that can be decomposed into smaller, local functions. Factor graphs provide a natural way to represent this structure, and message‑passing algorithms offer efficient methods for performing inference over it.
+Many real-world problems involve a large global function that can be decomposed into smaller local functions. Factor graphs provide a natural representation for this structure, while message-passing algorithms provide an efficient way to propagate information through it.
 
-Loopy belief propagation extends standard belief propagation to factor graphs containing cycles. This makes it useful for a wide range of practical problems where exact inference may be computationally infeasible.
+Belief propagation performs exact inference on tree-structured factor graphs. Loopy belief propagation extends the same message-passing rules to graphs containing cycles, making it useful for problems where exact inference is computationally impractical.
 
-Despite their broad applicability, modular implementations of message-passing algorithms are relatively uncommon—particularly in systems languages that emphasize both safety and performance.
+Despite their broad applicability, modular implementations of factor-graph inference are relatively uncommon—particularly in systems languages that emphasize both safety and performance.
 
 Loopy aims to fill that gap.
 
@@ -30,7 +30,7 @@ Loopy is intended to make the mechanics of message passing understandable withou
 
 ## Factor Graphs: The Big Picture
 
-A factor graph is a bipartite graphical model that expresses a global problem as a collection of local relationships.
+A factor graph is a bipartite graphical model that expresses a global function as a collection of local relationships.
 
 Formally, a factor graph can be written as
 
@@ -57,7 +57,7 @@ The graph structure indicates which variables participate in which local relatio
 This decomposition enables local computation and efficient propagation of information through the graph.
 
 ## What’s a Factor?
-A factor is a **function** over one or more variables. Depending on the application, factors may represent probabilities, compatibility scores, costs, energies, constraints, or other relationships.
+A factor is a **function** over zero or more variables. Depending on the application, factors may represent probabilities, compatibility scores, costs, energies, constraints, or other relationships.
 
 Each factor has a **scope**: the set of variables on which it depends.
 
@@ -72,9 +72,7 @@ Loopy is built around two fundamental factor operations:
 - **combine** — aggregates information from multiple factors
 - **reduce** — eliminates one or more variables from a factor
 
-These operations are defined by the algebra used for inference.
-
-For example:
+Their behavior is determined by the semiring used for inference:
 
 | Inference | Combine | Reduce |
 |---|---|---|
@@ -82,48 +80,43 @@ For example:
 | Max-product | Multiply | Max |
 | Constraint satisfaction | AND | OR |
 
-In general:
-
-- `combine` corresponds to the semiring's multiplicative operation
-- `reduce` corresponds to the semiring's additive operation
-
-This separation allows the same high-level factor-graph and message-passing machinery to support different forms of inference.
-
-In Loopy, the semiring provides the algebra for interpreting the factor graph: it defines how local functions combine into a global one and how factors relate during message passing. The graph specifies which pieces of the global function exist, while the semiring defines how those pieces interact.
+In semiring terms, `combine` is the multiplicative operation and `reduce` is the additive operation. This allows the same factor and graph abstractions to support different forms of inference.
 
 ## Loopy Belief Propagation
 
-Loopy belief propagation (LBP) is an iterative message‑passing algorithm used to compute approximate marginal distributions in factor graphs that contain cycles. It extends the standard belief propagation algorithm, which is exact on tree‑structured graphs, to more general graph topologies where exact inference is intractable.
+Loopy belief propagation is an iterative message-passing algorithm for performing approximate inference on factor graphs that contain cycles.
 
-In belief propagation, two kinds of messages are exchanged:
+Two kinds of messages are exchanged.
 
-- **Variable-to-factor** — summarizing a variable’s current belief based on all other connected factors.
+- **Variable-to-factor** — summarizes the information arriving at a variable from all neighboring factors except the destination factor.
 
   ![Variable to Factor](docs/img/lbp_variable_to_factor.svg)
 
-- **Factor-to-variable** — summarizing how a factor constrains a variable, given the other variables in that factor.
+- **Factor-to-variable** — summarizes how a factor influences a variable after incorporating information from the other variables in its scope.
 
-  ![Variable to Factor](docs/img/lbp_factor_to_variable.svg)
+  ![Factor to Variable](docs/img/lbp_factor_to_variable.svg)
 
 
 
-These messages are updated repeatedly until they converge or until a fixed number of iterations is reached. Once messages stabilize, the approximate marginal distribution for a variable \(X\) is:
+These messages are updated repeatedly until they converge or another stopping condition is reached. Once messages stabilize, the approximate marginal distribution for a variable \(X\) is:
 
 
 ![Belief](docs/img/lbp_belief.svg)
 
 
-Although LBP is not guaranteed to converge on graphs with cycles, it often produces stable and informative approximations in practice. Loopy provides a modular Rust implementation of these message‑passing rules, making it straightforward to explore different graph structures, factor definitions, and semiring choices.
+Although LBP is not guaranteed to converge on graphs with cycles, it often produces stable and informative approximations in practice. Loopy provides a modular Rust implementation of these message‑passing rules, making it straightforward to explore different graph structures, factor representations, and semiring choices.
 
 ## Core Abstractions
 
-Loopy is organized around a small set of composable abstractions that mirror the structure of a factor graph and the algebra used for inference. These abstractions form the foundation of the library’s API:
-- **Variables** — Represent the unknown quantities in a model. Each variable has a domain and participates in one or more factors.
-- **Factors** — Functions over one or more variables, implemented using flexible Rust abstractions.
-- **Factor graphs** — Connect variables and factors, defining the structure over which messages are exchanged.
-- **Semirings** — Provide the algebra that governs how factors interact, how messages are combined, and how inference proceeds.
+Loopy is organized around a small set of composable abstractions that mirror factor-graph inference:
 
-Together, these components define how a model is represented and how message passing is performed. The library builds on these abstractions to implement loopy belief propagation, custom message‑passing schedules, and future inference algorithms.
+- **Variables** — Represent unknown quantities and their domains.
+- **Factors** — Represent local functions over variables.
+- **Factor graphs** — Connect variables and factors, defining the structure over which messages are exchanged.
+- **Semirings** — Define the algebra used by factor operations and message passing.
+- **Schedules** — Determine how messages are updated during iterative inference.
+
+Together, these components separate model representation, factor algebra, and message-passing strategy while keeping the mechanics of inference explicit.
 
 ## Getting Started
 
@@ -135,3 +128,11 @@ cd loopy
 cargo build
 cargo test
 ```
+
+## Contact
+
+Loopy is an ongoing project reflecting my interests in probabilistic inference, high-performance systems programming, and algorithm development.
+
+Questions, feedback, and discussion are always welcome.
+
+**tim.crowe.dev@proton.me**
