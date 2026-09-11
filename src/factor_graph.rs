@@ -1,28 +1,27 @@
-//! Core data structures for representing factor graphs.
+//! Factor graph representation.
 //!
-//! A `FactorGraph` is a bipartite structure containing variable nodes and
-//! factor nodes. Variables represent unknown quantities; factors represent
-//! local functions over subsets of variables. The graph stores connectivity
-//! explicitly and provides stable identifiers (`VariableId`, `FactorId`) for
-//! referencing nodes throughout inference algorithms.
+//! A [`FactorGraph`] is a bipartite graph of variable nodes and factor nodes.
+//! Factors connect to the variables in their scopes, and graph connectivity is
+//! stored explicitly in each variable node.
+//!
+//! [`VariableId`] and [`FactorId`] provide stable identifiers for nodes in the
+//! graph.
 //!
 //! # Invariants
-//! - Variables have unique names.
-//! - `VariableId` and `FactorId` are stable indices.
-//! - Factors may only reference variables already present in the graph.
-//! - Graph connectivity is explicit and never implicitly modified.
+//!
+//! - Variable names are unique within a graph.
+//! - Node identifiers are stable indices.
+//! - Factors reference only variables already present in the graph.
+//! - Variable adjacency preserves factor insertion order.
 use std::collections::HashMap;
 
 use crate::factor::{Factor, FactorId, FactorKind};
 use crate::variable::{Variable, VariableId};
 
-/// A node representing a variable in a [`FactorGraph`].
+/// A variable node in a [`FactorGraph`].
 ///
-/// The node stores the variable itself and the factors whose scopes contain
-/// that variable.
-///
-/// The factors are stored in the order in which they were added to the
-/// graph.
+/// Stores the variable and the factors connected to it, in factor insertion
+/// order.
 #[derive(Clone, Debug)]
 pub struct VariableNode {
     variable: Variable,
@@ -37,23 +36,20 @@ impl VariableNode {
         }
     }
 
-    /// Return the variable represented by this node.
+    /// Returns the variable represented by this node.
     pub fn variable(&self) -> &Variable {
         &self.variable
     }
 
-    /// Return the factors connected to this variable.
+    /// Returns the factors connected to this variable.
     pub fn factor_ids(&self) -> &[FactorId] {
         &self.factors
     }
 }
 
-/// A node representing a factor in a [`FactorGraph`].
+/// A factor node in a [`FactorGraph`].
 ///
-/// The node stores the factor and exposes the variables in its scope as its
-/// neighboring variable nodes.
-///
-/// The scope ordering is preserved from the underlying factor.
+/// The neighboring variables are defined by the factor's scope.
 #[derive(Clone, Debug)]
 pub struct FactorNode {
     factor: FactorKind,
@@ -64,12 +60,12 @@ impl FactorNode {
         Self { factor }
     }
 
-    /// Return the factor represented by this node.
+    /// Returns the factor represented by this node.
     pub fn factor(&self) -> &FactorKind {
         &self.factor
     }
 
-    /// Return the variables connected to this factor.
+    /// Returns the variables connected to this factor.
     pub fn variable_ids(&self) -> &[VariableId] {
         self.factor.scope()
     }
@@ -77,12 +73,9 @@ impl FactorNode {
 
 /// A bipartite graph representing a factorization of a global function.
 ///
-/// A factor graph consists of variable nodes and factor nodes. Each factor
-/// connects to the variables in its scope, representing a local function over
-/// those variables.
-///
-/// The graph maintains connectivity between variables and factors and assigns
-/// each node a stable identifier for use by graph algorithms.
+/// The graph stores variables and factors in insertion order and assigns each
+/// node a stable identifier. Variable nodes maintain adjacency lists of
+/// connected factors, while factor adjacency is defined by each factor's scope.
 #[derive(Clone, Debug)]
 pub struct FactorGraph {
     variables: Vec<VariableNode>,
@@ -91,7 +84,7 @@ pub struct FactorGraph {
 }
 
 impl FactorGraph {
-    /// Create an empty factor graph.
+    /// Creates an empty factor graph.
     pub fn new() -> Self {
         Self {
             variables: Vec::new(),
@@ -100,16 +93,16 @@ impl FactorGraph {
         }
     }
 
-    /// Add a variable to the graph.
+    /// Adds a variable to the graph.
     ///
     /// Variable names must be unique within the graph. The returned
-    /// [`VariableId`] can be used to refer to the variable from factors
-    /// and other graph operations.
+    /// [`VariableId`] can be used to refer to the variable from factors and
+    /// other graph operations.
     ///
     /// # Errors
     ///
-    /// Returns [`GraphError::DuplicateVariableName`] if a variable with
-    /// the same name already exists in the graph.
+    /// Returns [`GraphError::DuplicateVariableName`] if a variable with the
+    /// same name already exists in the graph.
     pub fn add_variable(&mut self, variable: Variable) -> Result<VariableId, GraphError> {
         let name = variable.name().to_owned();
 
@@ -125,48 +118,40 @@ impl FactorGraph {
         Ok(id)
     }
 
-    /// Return the number of variables in the graph.
+    /// Returns the number of variables in the graph.
     pub fn num_variables(&self) -> usize {
         self.variables.len()
     }
 
-    /// Return the variable identified by `id`.
+    /// Returns the variable identified by `id`.
     ///
-    /// This provides access to the underlying variable without exposing
-    /// its graph connectivity. Use [`FactorGraph::variable_node`] when
-    /// graph adjacency is also needed.
+    /// Use [`Self::variable_node`] when graph adjacency is also needed.
     pub fn variable(&self, id: VariableId) -> Option<&Variable> {
         self.variables.get(id.index()).map(|node| node.variable())
     }
 
-    /// Return the variable node identified by `id`.
-    ///
-    /// The node provides access to both the variable and the factors
-    /// connected to it.
+    /// Returns the variable node identified by `id`.
     pub fn variable_node(&self, id: VariableId) -> Option<&VariableNode> {
         self.variables.get(id.index())
     }
 
-    /// Return the ID of the variable with the given name.
-    ///
-    /// Variable names are unique within a graph, so a successful lookup
-    /// identifies exactly one variable.
+    /// Returns the identifier of the variable with the given name.
     pub fn variable_id(&self, name: &str) -> Option<VariableId> {
         self.variable_registry.get(name).copied()
     }
 
-    /// Add a factor to the graph.
+    /// Adds a factor to the graph.
     ///
-    /// Every variable in the factor's scope must belong to this graph. When the
-    /// factor is added, its ID is recorded in the adjacency list of each
-    /// variable in its scope.
+    /// Every variable in the factor's scope must already belong to this graph.
+    /// When the factor is added, its identifier is recorded in the adjacency
+    /// list of each variable in its scope.
     ///
-    /// The order of the variables in the factor's scope is preserved.
+    /// The order of variables in the factor's scope is preserved.
     ///
     /// # Errors
     ///
-    /// Returns [`GraphError::UnknownVariableId`] if the factor references
-    /// a variable that does not belong to this graph.
+    /// Returns [`GraphError::UnknownVariableId`] if the factor references a
+    /// variable that does not belong to this graph.
     pub fn add_factor<F>(&mut self, factor: F) -> Result<FactorId, GraphError>
     where
         F: Into<FactorKind>,
@@ -190,27 +175,27 @@ impl FactorGraph {
         Ok(factor_id)
     }
 
-    /// Return the number of factors in the graph.
+    /// Returns the number of factors in the graph.
     pub fn num_factors(&self) -> usize {
         self.factors.len()
     }
 
-    /// Get a factor by its index.
+    /// Returns the factor identified by `id`.
     pub fn factor(&self, id: FactorId) -> Option<&FactorKind> {
         self.factors.get(id.index()).map(|node| node.factor())
     }
 
-    /// Return the factor node identified by `id`.
+    /// Returns the factor node identified by `id`.
     pub fn factor_node(&self, id: FactorId) -> Option<&FactorNode> {
         self.factors.get(id.index())
     }
 
-    /// Return all variable nodes in the graph.
+    /// Returns all variable nodes in the graph.
     pub fn variables(&self) -> &[VariableNode] {
         &self.variables
     }
 
-    /// Return all factor nodes in the graph.
+    /// Returns all factor nodes in the graph.
     pub fn factors(&self) -> &[FactorNode] {
         &self.factors
     }
