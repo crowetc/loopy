@@ -83,6 +83,12 @@ pub struct FactorGraph {
     variable_registry: HashMap<String, VariableId>,
 }
 
+impl Default for FactorGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FactorGraph {
     /// Creates an empty factor graph.
     pub fn new() -> Self {
