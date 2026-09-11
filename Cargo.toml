@@ -22,11 +22,16 @@ codegen-units = 1
 debug = false
 
 [[bench]]
+name = "combine_bench"
+path = "benches/combine_bench.rs"
+harness = false
+
+[[bench]]
 name = "reduce_bench"
 path = "benches/reduce_bench.rs"
 harness = false
 
 [[bench]]
-name = "combine_bench"
-path = "benches/combine_bench.rs"
+name = "synchronous_bench"
+path = "benches/synchronous_bench.rs"
 harness = false
