@@ -237,11 +237,7 @@ impl FactorNormalize<LogSumProduct> for UnaryFactor {
 
 impl FactorNormalize<LogMaxProduct> for UnaryFactor {
     fn normalize(self) -> Self {
-        let normalizer = self
-            .data
-            .iter()
-            .copied()
-            .fold(f64::NEG_INFINITY, f64::max);
+        let normalizer = self.data.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
         let data = self.data.iter().map(|value| value - normalizer).collect();
 
@@ -498,8 +494,7 @@ mod tests {
     fn test_normalize_log_sum_product() {
         let factor = UnaryFactor::from_linear(v(0), vec![2.0, 3.0]);
 
-        let normalized =
-            <UnaryFactor as FactorNormalize<LogSumProduct>>::normalize(factor);
+        let normalized = <UnaryFactor as FactorNormalize<LogSumProduct>>::normalize(factor);
 
         let expected = [(2.0_f64 / 5.0).ln(), (3.0_f64 / 5.0).ln()];
 
@@ -512,8 +507,7 @@ mod tests {
     fn test_normalize_log_max_product() {
         let factor = UnaryFactor::from_linear(v(0), vec![2.0, 4.0]);
 
-        let normalized =
-            <UnaryFactor as FactorNormalize<LogMaxProduct>>::normalize(factor);
+        let normalized = <UnaryFactor as FactorNormalize<LogMaxProduct>>::normalize(factor);
 
         let expected = [(2.0_f64 / 4.0).ln(), 0.0];
 
