@@ -80,4 +80,3 @@ impl TryFrom<FactorKind> for Message {
         }
     }
 }
-

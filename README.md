@@ -129,6 +129,16 @@ cargo build
 cargo test
 ```
 
+### Example: Travel Time Estimation
+
+The `travel_time` example models how weather and traffic conditions influence travel time, demonstrating sum-product and max-product inference over the same factor graph.
+
+```bash
+cargo run --example travel_time
+```
+
+See [`examples/travel_time.rs`](examples/travel_time.rs) for the complete example.
+
 ## Contact
 
 Loopy is an ongoing project reflecting my interests in probabilistic inference, high-performance systems programming, and algorithm development.

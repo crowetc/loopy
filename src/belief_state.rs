@@ -147,10 +147,7 @@ mod tests {
             .add_variable(Variable::discrete("y", ["0", "1"]))
             .unwrap();
 
-        let factor = DenseFactor::new(
-            vec![x, y],
-            array![[1.0, 2.0], [3.0, 4.0]].into_dyn(),
-        );
+        let factor = DenseFactor::new(vec![x, y], array![[1.0, 2.0], [3.0, 4.0]].into_dyn());
 
         let f = graph.add_factor(factor).unwrap();
 
@@ -185,10 +182,7 @@ mod tests {
 
         let mut state = BeliefState::<LogSumProduct>::from_graph(graph);
 
-        let factor = DenseFactor::new(
-            vec![x, y],
-            array![[1.0, 2.0], [3.0, 4.0]].into_dyn(),
-        );
+        let factor = DenseFactor::new(vec![x, y], array![[1.0, 2.0], [3.0, 4.0]].into_dyn());
 
         let f = state.apply(factor).unwrap();
 
