@@ -149,7 +149,6 @@ impl MessageStore {
     ///
     /// The returned slice contains the [`MessageId`] for every message whose
     /// source is `variable`.
-    #[allow(dead_code)]
     pub(crate) fn variable_out(&self, variable: VariableId) -> &[MessageId] {
         self.variable_out
             .get(variable.index())
