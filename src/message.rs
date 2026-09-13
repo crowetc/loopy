@@ -14,7 +14,6 @@ pub(crate) use directed_edge::{DirectedEdge, Endpoint};
 pub(crate) use store::MessageStore;
 
 use crate::factor::{Factor, FactorKind};
-use crate::variable::VariableId;
 
 /// Stable identifier for a directed message in a belief-propagation state.
 ///
@@ -49,11 +48,6 @@ pub(crate) struct Message {
 }
 
 impl Message {
-    /// Returns the variable represented by this message.
-    pub(crate) fn variable(&self) -> VariableId {
-        self.factor.scope()[0]
-    }
-
     /// Returns the factor carried by this message.
     pub(crate) fn factor(&self) -> &FactorKind {
         &self.factor

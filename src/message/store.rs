@@ -134,12 +134,6 @@ impl MessageStore {
         self.messages[id.index()].as_ref()
     }
 
-    /// Returns a mutable reference to the message associated with `id`, if one
-    /// has been computed.
-    pub(crate) fn get_mut(&mut self, id: MessageId) -> Option<&mut Message> {
-        self.messages[id.index()].as_mut()
-    }
-
     /// Stores `message` in the slot associated with `id`.
     ///
     /// Any previously computed message for the edge is replaced.
@@ -155,6 +149,7 @@ impl MessageStore {
     ///
     /// The returned slice contains the [`MessageId`] for every message whose
     /// source is `variable`.
+    #[allow(dead_code)]
     pub(crate) fn variable_out(&self, variable: VariableId) -> &[MessageId] {
         self.variable_out
             .get(variable.index())
