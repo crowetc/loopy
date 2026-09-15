@@ -94,12 +94,20 @@ impl FactorOps<LogMaxProduct> for ScalarFactor {
 
 impl FactorNormalize<LogSumProduct> for ScalarFactor {
     fn normalize(self) -> Self {
+        if self.value() == f64::NEG_INFINITY {
+            return self;
+        }
+
         ScalarFactor::new(0.0)
     }
 }
 
 impl FactorNormalize<LogMaxProduct> for ScalarFactor {
     fn normalize(self) -> Self {
+        if self.value() == f64::NEG_INFINITY {
+            return self;
+        }
+
         ScalarFactor::new(0.0)
     }
 }

@@ -260,6 +260,10 @@ mod tests {
         assert_eq!(f.data().ndim(), 2);
     }
 
+    //
+    // Reduce Tests
+    //
+
     #[test]
     fn test_reduce_single_in_scope() {
         let data = array![[1.0_f64, 2.0], [3.0, 4.0]]
@@ -456,6 +460,10 @@ mod tests {
         }
     }
 
+    //
+    // Combine Tests
+    //
+
     #[test]
     fn test_combine_dense_x_dense_intersect() {
         let f = DenseFactor::new(vec![v(0), v(1)], arr2(&[[1.0, 2.0], [3.0, 4.0]]).into_dyn());
@@ -582,6 +590,10 @@ mod tests {
         assert_eq!(out.data(), &expected);
     }
 
+    //
+    // Normalize Tests
+    //
+
     #[test]
     fn test_normalize_log_sum_product() {
         let factor = DenseFactor::new(vec![v(0)], array![2.0_f64, 3.0].mapv(|x| x.ln()).into_dyn());
@@ -644,5 +656,54 @@ mod tests {
                 .iter()
                 .all(|value| *value == f64::NEG_INFINITY)
         );
+    }
+
+    //
+    // Distance Tests
+    //
+
+    #[test]
+    fn test_distance_matching_impossible_values() {
+        let lhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            array![[f64::NEG_INFINITY, -2.0], [-3.0, -4.0],].into_dyn(),
+        );
+
+        let rhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            array![[f64::NEG_INFINITY, -3.0], [-3.0, -4.0],].into_dyn(),
+        );
+
+        assert_eq!(lhs.distance(&rhs), 1.0);
+    }
+
+    #[test]
+    fn test_distance_all_impossible() {
+        let lhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            ArrayD::from_elem(IxDyn(&[2, 2]), f64::NEG_INFINITY),
+        );
+
+        let rhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            ArrayD::from_elem(IxDyn(&[2, 2]), f64::NEG_INFINITY),
+        );
+
+        assert_eq!(lhs.distance(&rhs), 0.0);
+    }
+
+    #[test]
+    fn test_distance_changed_support() {
+        let lhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            array![[f64::NEG_INFINITY, -2.0], [-3.0, -4.0],].into_dyn(),
+        );
+
+        let rhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            array![[-5.0, -2.0], [-3.0, -4.0],].into_dyn(),
+        );
+
+        assert_eq!(lhs.distance(&rhs), f64::INFINITY);
     }
 }

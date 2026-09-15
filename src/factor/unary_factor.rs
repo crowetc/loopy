@@ -555,4 +555,35 @@ mod tests {
                 .all(|value| *value == f64::NEG_INFINITY)
         );
     }
+
+    //
+    // Distance Tests
+    //
+
+    #[test]
+    fn test_distance_matching_impossible_values() {
+        let lhs = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, -2.0]);
+
+        let rhs = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, -3.0]);
+
+        assert_eq!(lhs.distance(&rhs), 1.0);
+    }
+
+    #[test]
+    fn test_distance_all_impossible() {
+        let lhs = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, f64::NEG_INFINITY]);
+
+        let rhs = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, f64::NEG_INFINITY]);
+
+        assert_eq!(lhs.distance(&rhs), 0.0);
+    }
+
+    #[test]
+    fn test_distance_changed_support() {
+        let lhs = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, -2.0]);
+
+        let rhs = UnaryFactor::new(v(0), vec![-3.0, -2.0]);
+
+        assert_eq!(lhs.distance(&rhs), f64::INFINITY);
+    }
 }
