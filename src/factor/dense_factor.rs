@@ -202,28 +202,28 @@ impl FactorOps<LogMaxProduct> for DenseFactor {
 }
 
 impl FactorNormalize<LogSumProduct> for DenseFactor {
-    fn normalize(self) -> Self {
-        let normalizer = lse(self.data().iter().copied());
+    fn normalize(mut self) -> Self {
+        let normalizer = lse(self.data.iter().copied());
 
-        let scope = self.scope().to_vec();
-        let data = self.data().mapv(|value| value - normalizer);
+        if normalizer == f64::NEG_INFINITY {
+            return self;
+        }
 
-        DenseFactor::new(scope, data)
+        self.data.mapv_inplace(|value| value - normalizer);
+        self
     }
 }
 
 impl FactorNormalize<LogMaxProduct> for DenseFactor {
-    fn normalize(self) -> Self {
-        let normalizer = self
-            .data()
-            .iter()
-            .copied()
-            .fold(f64::NEG_INFINITY, f64::max);
+    fn normalize(mut self) -> Self {
+        let normalizer = self.data.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
-        let scope = self.scope().to_vec();
-        let data = self.data().mapv(|value| value - normalizer);
+        if normalizer == f64::NEG_INFINITY {
+            return self;
+        }
 
-        DenseFactor::new(scope, data)
+        self.data.mapv_inplace(|value| value - normalizer);
+        self
     }
 }
 
@@ -598,6 +598,23 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_log_sum_product_all_impossible() {
+        let factor = DenseFactor::new(
+            vec![v(0)],
+            array![f64::NEG_INFINITY, f64::NEG_INFINITY].into_dyn(),
+        );
+
+        let normalized = <DenseFactor as FactorNormalize<LogSumProduct>>::normalize(factor);
+
+        assert!(
+            normalized
+                .data()
+                .iter()
+                .all(|value| *value == f64::NEG_INFINITY)
+        );
+    }
+
+    #[test]
     fn test_normalize_log_max_product() {
         let factor = DenseFactor::new(vec![v(0)], array![2.0_f64, 4.0].mapv(|x| x.ln()).into_dyn());
 
@@ -610,5 +627,22 @@ mod tests {
         }
 
         assert_eq!(normalized.scope(), &[v(0)]);
+    }
+
+    #[test]
+    fn test_normalize_log_max_product_all_impossible() {
+        let factor = DenseFactor::new(
+            vec![v(0)],
+            array![f64::NEG_INFINITY, f64::NEG_INFINITY].into_dyn(),
+        );
+
+        let normalized = <DenseFactor as FactorNormalize<LogMaxProduct>>::normalize(factor);
+
+        assert!(
+            normalized
+                .data()
+                .iter()
+                .all(|value| *value == f64::NEG_INFINITY)
+        );
     }
 }
