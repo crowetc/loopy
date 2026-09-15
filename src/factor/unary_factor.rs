@@ -226,22 +226,34 @@ where
 }
 
 impl FactorNormalize<LogSumProduct> for UnaryFactor {
-    fn normalize(self) -> Self {
-        let normalizer = lse_two_pass(self.data());
+    fn normalize(mut self) -> Self {
+        let normalizer = lse_two_pass(&self.data);
 
-        let data = self.data.iter().map(|value| value - normalizer).collect();
+        if normalizer == f64::NEG_INFINITY {
+            return self;
+        }
 
-        UnaryFactor::new(self.var(), data)
+        for value in &mut self.data {
+            *value -= normalizer;
+        }
+
+        self
     }
 }
 
 impl FactorNormalize<LogMaxProduct> for UnaryFactor {
-    fn normalize(self) -> Self {
+    fn normalize(mut self) -> Self {
         let normalizer = self.data.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
-        let data = self.data.iter().map(|value| value - normalizer).collect();
+        if normalizer == f64::NEG_INFINITY {
+            return self;
+        }
 
-        UnaryFactor::new(self.var(), data)
+        for value in &mut self.data {
+            *value -= normalizer;
+        }
+
+        self
     }
 }
 
@@ -504,6 +516,20 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_log_sum_product_all_impossible() {
+        let factor = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, f64::NEG_INFINITY]);
+
+        let normalized = <UnaryFactor as FactorNormalize<LogSumProduct>>::normalize(factor);
+
+        assert!(
+            normalized
+                .data()
+                .iter()
+                .all(|value| *value == f64::NEG_INFINITY)
+        );
+    }
+
+    #[test]
     fn test_normalize_log_max_product() {
         let factor = UnaryFactor::from_linear(v(0), vec![2.0, 4.0]);
 
@@ -514,5 +540,19 @@ mod tests {
         for (actual, expected) in normalized.data().iter().zip(expected) {
             assert!((actual - expected).abs() < 1e-12);
         }
+    }
+
+    #[test]
+    fn test_normalize_log_max_product_all_impossible() {
+        let factor = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, f64::NEG_INFINITY]);
+
+        let normalized = <UnaryFactor as FactorNormalize<LogMaxProduct>>::normalize(factor);
+
+        assert!(
+            normalized
+                .data()
+                .iter()
+                .all(|value| *value == f64::NEG_INFINITY)
+        );
     }
 }
