@@ -460,6 +460,50 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_reduce_with_impossible_assignments() {
+        let data = array![
+            [f64::NEG_INFINITY, 2.0_f64.ln()],
+            [f64::NEG_INFINITY, 3.0_f64.ln()],
+        ]
+        .into_dyn();
+
+        let f = DenseFactor::new(vec![v(0), v(1)], data);
+
+        let g = <DenseFactor as FactorOps<LogSumProduct>>::reduce(f, &[v(0)]);
+
+        match g {
+            FactorKind::Unary(u) => {
+                assert_eq!(u.scope(), &[v(1)]);
+                assert_eq!(u.data()[0], f64::NEG_INFINITY);
+                assert!((u.data()[1] - 5.0_f64.ln()).abs() < 1e-12);
+            }
+            _ => panic!("Expected unary factor"),
+        }
+    }
+
+    #[test]
+    fn test_reduce_max_with_impossible_assignments() {
+        let data = array![
+            [f64::NEG_INFINITY, 2.0_f64.ln()],
+            [f64::NEG_INFINITY, 3.0_f64.ln()],
+        ]
+        .into_dyn();
+
+        let f = DenseFactor::new(vec![v(0), v(1)], data);
+
+        let g = <DenseFactor as FactorOps<LogMaxProduct>>::reduce(f, &[v(0)]);
+
+        match g {
+            FactorKind::Unary(u) => {
+                assert_eq!(u.scope(), &[v(1)]);
+                assert_eq!(u.data()[0], f64::NEG_INFINITY);
+                assert!((u.data()[1] - 3.0_f64.ln()).abs() < 1e-12);
+            }
+            _ => panic!("Expected unary factor"),
+        }
+    }
+
     //
     // Combine Tests
     //
@@ -587,6 +631,24 @@ mod tests {
 
         let expected = array![[11.0, 23.0], [12.0, 24.0],].into_dyn();
 
+        assert_eq!(out.data(), &expected);
+    }
+
+    #[test]
+    fn test_combine_dense_x_unary_with_impossible_assignment() {
+        let f = DenseFactor::new(vec![v(0), v(1)], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
+
+        let u = UnaryFactor::new(v(1), vec![f64::NEG_INFINITY, 10.0]);
+
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(u))
+        {
+            FactorKind::Dense(d) => d,
+            _ => panic!("Expected dense"),
+        };
+
+        let expected = array![[f64::NEG_INFINITY, 12.0], [f64::NEG_INFINITY, 14.0],].into_dyn();
+
+        assert_eq!(out.scope(), &[v(0), v(1)]);
         assert_eq!(out.data(), &expected);
     }
 

@@ -500,4 +500,52 @@ mod tests {
         assert_eq!(result.iterations, 1);
         assert!(result.residual.is_infinite());
     }
+
+    #[test]
+    fn run_handles_impossible_assignments() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(binary_variable("x")).unwrap();
+        let y = graph.add_variable(binary_variable("y")).unwrap();
+
+        // Fix x = 0.
+        graph
+            .add_factor(UnaryFactor::from_linear(x, vec![1.0, 0.0]))
+            .unwrap();
+
+        // Equality constraint: x == y.
+        graph
+            .add_factor(DenseFactor::from_linear(
+                vec![x, y],
+                array![[1.0, 0.0], [0.0, 1.0],].into_dyn(),
+            ))
+            .unwrap();
+
+        let mut state = BeliefState::<LogSumProduct>::from_graph(graph);
+        let mut schedule = Synchronous::new();
+
+        let result = schedule.run(
+            &mut state,
+            RunOptions {
+                max_iterations: 100,
+                tolerance: 1e-10,
+            },
+        );
+
+        assert!(result.converged);
+        assert!(result.residual.is_finite());
+        assert!(result.residual <= 1e-10);
+
+        let belief = state
+            .belief(y)
+            .expect("belief query should succeed")
+            .expect("expected belief");
+
+        let FactorKind::Unary(belief) = belief else {
+            panic!("expected unary belief");
+        };
+
+        assert_eq!(belief.data()[0], 0.0);
+        assert_eq!(belief.data()[1], f64::NEG_INFINITY);
+    }
 }
