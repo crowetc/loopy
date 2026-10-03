@@ -548,4 +548,48 @@ mod tests {
         assert_eq!(belief.data()[0], 0.0);
         assert_eq!(belief.data()[1], f64::NEG_INFINITY);
     }
+
+    #[test]
+    fn run_handles_inconsistent_evidence() {
+        let mut graph = FactorGraph::new();
+
+        let x = graph.add_variable(binary_variable("x")).unwrap();
+
+        // x must be 0.
+        graph
+            .add_factor(UnaryFactor::from_linear(x, vec![1.0, 0.0]))
+            .unwrap();
+
+        // x must be 1.
+        graph
+            .add_factor(UnaryFactor::from_linear(x, vec![0.0, 1.0]))
+            .unwrap();
+
+        let mut state = BeliefState::<LogSumProduct>::from_graph(graph);
+        let mut schedule = Synchronous::new();
+
+        let result = schedule.run(
+            &mut state,
+            RunOptions {
+                max_iterations: 100,
+                tolerance: 1e-10,
+            },
+        );
+
+        assert!(result.converged);
+        assert!(result.residual.is_finite());
+        assert!(result.residual <= 1e-10);
+
+        let belief = state
+            .belief(x)
+            .expect("belief query should succeed")
+            .expect("expected belief");
+
+        let FactorKind::Unary(belief) = belief else {
+            panic!("expected unary belief");
+        };
+
+        assert_eq!(belief.data()[0], f64::NEG_INFINITY);
+        assert_eq!(belief.data()[1], f64::NEG_INFINITY);
+    }
 }

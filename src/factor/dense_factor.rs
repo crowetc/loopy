@@ -40,9 +40,9 @@ pub struct DenseFactor {
 impl DenseFactor {
     /// Creates a dense factor from log-space values.
     ///
-    /// Values may be finite or negative infinity. Negative infinity represents
-    /// an impossible assignment. NaN values are not supported and are not
-    /// checked at construction.
+    /// Values must be finite or negative infinity. Negative infinity represents
+    /// an impossible assignment. Positive infinity and NaN are not supported and
+    /// are not checked at construction.
     ///
     /// # Panics
     /// Panics if the number of variables in `scope` does not equal the number
@@ -59,9 +59,10 @@ impl DenseFactor {
 
     /// Construct a dense factor from linear-space values.
     ///
-    /// Values must be nonnegative. Zero represents an impossible assignment
-    /// and is stored as negative infinity in log-space. Negative and NaN values
-    /// are not supported and are not checked at construction.
+    /// Values must be finite and nonnegative. Zero-valued entries represent
+    /// impossible assignments and are stored as negative infinity in log-space.
+    /// Infinite and NaN values are not supported and are not checked at
+    /// construction.
     ///
     /// # Panics
     /// Panics if the number of variables in `scope` does not equal the number
