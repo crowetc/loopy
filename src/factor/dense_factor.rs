@@ -40,6 +40,10 @@ pub struct DenseFactor {
 impl DenseFactor {
     /// Creates a dense factor from log-space values.
     ///
+    /// Values must be finite or negative infinity. Negative infinity represents
+    /// an impossible assignment. Positive infinity and NaN are not supported and
+    /// are not checked at construction.
+    ///
     /// # Panics
     /// Panics if the number of variables in `scope` does not equal the number
     /// of dimensions in `data`.
@@ -54,6 +58,11 @@ impl DenseFactor {
     }
 
     /// Construct a dense factor from linear-space values.
+    ///
+    /// Values must be finite and nonnegative. Zero-valued entries represent
+    /// impossible assignments and are stored as negative infinity in log-space.
+    /// Infinite and NaN values are not supported and are not checked at
+    /// construction.
     ///
     /// # Panics
     /// Panics if the number of variables in `scope` does not equal the number
@@ -202,28 +211,28 @@ impl FactorOps<LogMaxProduct> for DenseFactor {
 }
 
 impl FactorNormalize<LogSumProduct> for DenseFactor {
-    fn normalize(self) -> Self {
-        let normalizer = lse(self.data().iter().copied());
+    fn normalize(mut self) -> Self {
+        let normalizer = lse(self.data.iter().copied());
 
-        let scope = self.scope().to_vec();
-        let data = self.data().mapv(|value| value - normalizer);
+        if normalizer == f64::NEG_INFINITY {
+            return self;
+        }
 
-        DenseFactor::new(scope, data)
+        self.data.mapv_inplace(|value| value - normalizer);
+        self
     }
 }
 
 impl FactorNormalize<LogMaxProduct> for DenseFactor {
-    fn normalize(self) -> Self {
-        let normalizer = self
-            .data()
-            .iter()
-            .copied()
-            .fold(f64::NEG_INFINITY, f64::max);
+    fn normalize(mut self) -> Self {
+        let normalizer = self.data.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
-        let scope = self.scope().to_vec();
-        let data = self.data().mapv(|value| value - normalizer);
+        if normalizer == f64::NEG_INFINITY {
+            return self;
+        }
 
-        DenseFactor::new(scope, data)
+        self.data.mapv_inplace(|value| value - normalizer);
+        self
     }
 }
 
@@ -259,6 +268,10 @@ mod tests {
         assert_eq!(f.scope(), &[v(0), v(1)]);
         assert_eq!(f.data().ndim(), 2);
     }
+
+    //
+    // Reduce Tests
+    //
 
     #[test]
     fn test_reduce_single_in_scope() {
@@ -457,6 +470,54 @@ mod tests {
     }
 
     #[test]
+    fn test_reduce_with_impossible_assignments() {
+        let data = array![
+            [f64::NEG_INFINITY, 2.0_f64.ln()],
+            [f64::NEG_INFINITY, 3.0_f64.ln()],
+        ]
+        .into_dyn();
+
+        let f = DenseFactor::new(vec![v(0), v(1)], data);
+
+        let g = <DenseFactor as FactorOps<LogSumProduct>>::reduce(f, &[v(0)]);
+
+        match g {
+            FactorKind::Unary(u) => {
+                assert_eq!(u.scope(), &[v(1)]);
+                assert_eq!(u.data()[0], f64::NEG_INFINITY);
+                assert!((u.data()[1] - 5.0_f64.ln()).abs() < 1e-12);
+            }
+            _ => panic!("Expected unary factor"),
+        }
+    }
+
+    #[test]
+    fn test_reduce_max_with_impossible_assignments() {
+        let data = array![
+            [f64::NEG_INFINITY, 2.0_f64.ln()],
+            [f64::NEG_INFINITY, 3.0_f64.ln()],
+        ]
+        .into_dyn();
+
+        let f = DenseFactor::new(vec![v(0), v(1)], data);
+
+        let g = <DenseFactor as FactorOps<LogMaxProduct>>::reduce(f, &[v(0)]);
+
+        match g {
+            FactorKind::Unary(u) => {
+                assert_eq!(u.scope(), &[v(1)]);
+                assert_eq!(u.data()[0], f64::NEG_INFINITY);
+                assert!((u.data()[1] - 3.0_f64.ln()).abs() < 1e-12);
+            }
+            _ => panic!("Expected unary factor"),
+        }
+    }
+
+    //
+    // Combine Tests
+    //
+
+    #[test]
     fn test_combine_dense_x_dense_intersect() {
         let f = DenseFactor::new(vec![v(0), v(1)], arr2(&[[1.0, 2.0], [3.0, 4.0]]).into_dyn());
 
@@ -583,6 +644,28 @@ mod tests {
     }
 
     #[test]
+    fn test_combine_dense_x_unary_with_impossible_assignment() {
+        let f = DenseFactor::new(vec![v(0), v(1)], array![[1.0, 2.0], [3.0, 4.0],].into_dyn());
+
+        let u = UnaryFactor::new(v(1), vec![f64::NEG_INFINITY, 10.0]);
+
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(u))
+        {
+            FactorKind::Dense(d) => d,
+            _ => panic!("Expected dense"),
+        };
+
+        let expected = array![[f64::NEG_INFINITY, 12.0], [f64::NEG_INFINITY, 14.0],].into_dyn();
+
+        assert_eq!(out.scope(), &[v(0), v(1)]);
+        assert_eq!(out.data(), &expected);
+    }
+
+    //
+    // Normalize Tests
+    //
+
+    #[test]
     fn test_normalize_log_sum_product() {
         let factor = DenseFactor::new(vec![v(0)], array![2.0_f64, 3.0].mapv(|x| x.ln()).into_dyn());
 
@@ -598,6 +681,23 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_log_sum_product_all_impossible() {
+        let factor = DenseFactor::new(
+            vec![v(0)],
+            array![f64::NEG_INFINITY, f64::NEG_INFINITY].into_dyn(),
+        );
+
+        let normalized = <DenseFactor as FactorNormalize<LogSumProduct>>::normalize(factor);
+
+        assert!(
+            normalized
+                .data()
+                .iter()
+                .all(|value| *value == f64::NEG_INFINITY)
+        );
+    }
+
+    #[test]
     fn test_normalize_log_max_product() {
         let factor = DenseFactor::new(vec![v(0)], array![2.0_f64, 4.0].mapv(|x| x.ln()).into_dyn());
 
@@ -610,5 +710,71 @@ mod tests {
         }
 
         assert_eq!(normalized.scope(), &[v(0)]);
+    }
+
+    #[test]
+    fn test_normalize_log_max_product_all_impossible() {
+        let factor = DenseFactor::new(
+            vec![v(0)],
+            array![f64::NEG_INFINITY, f64::NEG_INFINITY].into_dyn(),
+        );
+
+        let normalized = <DenseFactor as FactorNormalize<LogMaxProduct>>::normalize(factor);
+
+        assert!(
+            normalized
+                .data()
+                .iter()
+                .all(|value| *value == f64::NEG_INFINITY)
+        );
+    }
+
+    //
+    // Distance Tests
+    //
+
+    #[test]
+    fn test_distance_matching_impossible_values() {
+        let lhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            array![[f64::NEG_INFINITY, -2.0], [-3.0, -4.0],].into_dyn(),
+        );
+
+        let rhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            array![[f64::NEG_INFINITY, -3.0], [-3.0, -4.0],].into_dyn(),
+        );
+
+        assert_eq!(lhs.distance(&rhs), 1.0);
+    }
+
+    #[test]
+    fn test_distance_all_impossible() {
+        let lhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            ArrayD::from_elem(IxDyn(&[2, 2]), f64::NEG_INFINITY),
+        );
+
+        let rhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            ArrayD::from_elem(IxDyn(&[2, 2]), f64::NEG_INFINITY),
+        );
+
+        assert_eq!(lhs.distance(&rhs), 0.0);
+    }
+
+    #[test]
+    fn test_distance_changed_support() {
+        let lhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            array![[f64::NEG_INFINITY, -2.0], [-3.0, -4.0],].into_dyn(),
+        );
+
+        let rhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            array![[-5.0, -2.0], [-3.0, -4.0],].into_dyn(),
+        );
+
+        assert_eq!(lhs.distance(&rhs), f64::INFINITY);
     }
 }

@@ -30,6 +30,10 @@ pub struct UnaryFactor {
 impl UnaryFactor {
     /// Creates a unary factor for a variable with the given log-space data.
     ///
+    /// Values must be finite or negative infinity. Negative infinity represents
+    /// an impossible assignment. Positive infinity and NaN are not supported and
+    /// are not checked at construction.
+    ///
     /// # Panics
     /// Panics if `data` is empty.
     pub fn new(var: VariableId, data: Vec<f64>) -> Self {
@@ -39,6 +43,11 @@ impl UnaryFactor {
     }
 
     /// Constructs a unary factor from linear-space values.
+    ///
+    /// Values must be finite and nonnegative. Zero-valued entries represent
+    /// impossible assignments and are stored as negative infinity in log-space.
+    /// Infinite and NaN values are not supported and are not checked at
+    /// construction.
     ///
     /// # Panics
     /// Panics if `linear` is empty.
@@ -226,22 +235,34 @@ where
 }
 
 impl FactorNormalize<LogSumProduct> for UnaryFactor {
-    fn normalize(self) -> Self {
-        let normalizer = lse_two_pass(self.data());
+    fn normalize(mut self) -> Self {
+        let normalizer = lse_two_pass(&self.data);
 
-        let data = self.data.iter().map(|value| value - normalizer).collect();
+        if normalizer == f64::NEG_INFINITY {
+            return self;
+        }
 
-        UnaryFactor::new(self.var(), data)
+        for value in &mut self.data {
+            *value -= normalizer;
+        }
+
+        self
     }
 }
 
 impl FactorNormalize<LogMaxProduct> for UnaryFactor {
-    fn normalize(self) -> Self {
+    fn normalize(mut self) -> Self {
         let normalizer = self.data.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
-        let data = self.data.iter().map(|value| value - normalizer).collect();
+        if normalizer == f64::NEG_INFINITY {
+            return self;
+        }
 
-        UnaryFactor::new(self.var(), data)
+        for value in &mut self.data {
+            *value -= normalizer;
+        }
+
+        self
     }
 }
 
@@ -504,6 +525,20 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_log_sum_product_all_impossible() {
+        let factor = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, f64::NEG_INFINITY]);
+
+        let normalized = <UnaryFactor as FactorNormalize<LogSumProduct>>::normalize(factor);
+
+        assert!(
+            normalized
+                .data()
+                .iter()
+                .all(|value| *value == f64::NEG_INFINITY)
+        );
+    }
+
+    #[test]
     fn test_normalize_log_max_product() {
         let factor = UnaryFactor::from_linear(v(0), vec![2.0, 4.0]);
 
@@ -514,5 +549,50 @@ mod tests {
         for (actual, expected) in normalized.data().iter().zip(expected) {
             assert!((actual - expected).abs() < 1e-12);
         }
+    }
+
+    #[test]
+    fn test_normalize_log_max_product_all_impossible() {
+        let factor = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, f64::NEG_INFINITY]);
+
+        let normalized = <UnaryFactor as FactorNormalize<LogMaxProduct>>::normalize(factor);
+
+        assert!(
+            normalized
+                .data()
+                .iter()
+                .all(|value| *value == f64::NEG_INFINITY)
+        );
+    }
+
+    //
+    // Distance Tests
+    //
+
+    #[test]
+    fn test_distance_matching_impossible_values() {
+        let lhs = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, -2.0]);
+
+        let rhs = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, -3.0]);
+
+        assert_eq!(lhs.distance(&rhs), 1.0);
+    }
+
+    #[test]
+    fn test_distance_all_impossible() {
+        let lhs = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, f64::NEG_INFINITY]);
+
+        let rhs = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, f64::NEG_INFINITY]);
+
+        assert_eq!(lhs.distance(&rhs), 0.0);
+    }
+
+    #[test]
+    fn test_distance_changed_support() {
+        let lhs = UnaryFactor::new(v(0), vec![f64::NEG_INFINITY, -2.0]);
+
+        let rhs = UnaryFactor::new(v(0), vec![-3.0, -2.0]);
+
+        assert_eq!(lhs.distance(&rhs), f64::INFINITY);
     }
 }

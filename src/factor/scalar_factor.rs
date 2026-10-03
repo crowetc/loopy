@@ -21,11 +21,18 @@ pub struct ScalarFactor {
 
 impl ScalarFactor {
     /// Creates a scalar factor from a log-space value.
+    ///
+    /// The value must be finite or negative infinity. Positive infinity and NaN
+    /// are not supported and are not checked at construction.
     pub fn new(value: f64) -> Self {
         Self { value }
     }
 
     /// Creates a scalar factor from a linear-space value.
+    ///
+    /// The value must be finite and nonnegative. Zero is stored as negative
+    /// infinity in log-space. Infinite and NaN values are not supported and are
+    /// not checked at construction.
     pub fn from_linear(linear: f64) -> Self {
         ScalarFactor::new(linear.ln())
     }
@@ -94,12 +101,20 @@ impl FactorOps<LogMaxProduct> for ScalarFactor {
 
 impl FactorNormalize<LogSumProduct> for ScalarFactor {
     fn normalize(self) -> Self {
+        if self.value() == f64::NEG_INFINITY {
+            return self;
+        }
+
         ScalarFactor::new(0.0)
     }
 }
 
 impl FactorNormalize<LogMaxProduct> for ScalarFactor {
     fn normalize(self) -> Self {
+        if self.value() == f64::NEG_INFINITY {
+            return self;
+        }
+
         ScalarFactor::new(0.0)
     }
 }

@@ -20,7 +20,7 @@ Establish the core discrete belief propagation library and a usable initial API.
 - [x] Factor operation benchmarks
 - [x] Simple example
 - [x] Continuous integration
-- [ ] Harden discrete inference semantics and edge-case behavior ([#TBD](#))
+- [x] Harden discrete inference semantics and edge-case behavior
 - [ ] Expand loopy-graph inference tests ([#TBD](#))
 - [ ] Add a worked example containing a cycle ([#TBD](#))
 - [ ] Review and stabilize the 0.1 public API ([#TBD](#))
