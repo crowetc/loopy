@@ -21,11 +21,18 @@ pub struct ScalarFactor {
 
 impl ScalarFactor {
     /// Creates a scalar factor from a log-space value.
+    ///
+    /// NaN values are not supported and are not checked at construction.
+    /// Negative infinity is supported and represents an impossible assignment.
     pub fn new(value: f64) -> Self {
         Self { value }
     }
 
     /// Creates a scalar factor from a linear-space value.
+    ///
+    /// Values must not be negative or NaN. Zero represents an impossible
+    /// assignment and is stored as negative infinity in log-space. Inputs are
+    /// not checked at construction.
     pub fn from_linear(linear: f64) -> Self {
         ScalarFactor::new(linear.ln())
     }

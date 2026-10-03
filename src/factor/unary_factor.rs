@@ -30,6 +30,10 @@ pub struct UnaryFactor {
 impl UnaryFactor {
     /// Creates a unary factor for a variable with the given log-space data.
     ///
+    /// Values may be finite or negative infinity. Negative infinity represents
+    /// an impossible assignment. NaN values are not supported and are not
+    /// checked at construction.
+    ///
     /// # Panics
     /// Panics if `data` is empty.
     pub fn new(var: VariableId, data: Vec<f64>) -> Self {
@@ -39,6 +43,10 @@ impl UnaryFactor {
     }
 
     /// Constructs a unary factor from linear-space values.
+    ///
+    /// Values must be nonnegative. Zero represents an impossible assignment
+    /// and is stored as negative infinity in log-space. Negative and NaN values
+    /// are not supported and are not checked at construction.
     ///
     /// # Panics
     /// Panics if `linear` is empty.
