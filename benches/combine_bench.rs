@@ -6,11 +6,7 @@ use ndarray::{ArrayD, IxDyn};
 use std::hint::black_box;
 
 fn consume_result(out: FactorKind) {
-    match out {
-        FactorKind::Dense(d) => black_box(d.data().len()),
-        FactorKind::Unary(u) => black_box(u.data().len()),
-        FactorKind::Scalar(s) => black_box(s.value() as usize),
-    };
+    black_box(out);
 }
 
 fn dense_factor(scope: Vec<VariableId>, shape: &[usize]) -> DenseFactor {
@@ -119,11 +115,29 @@ fn bench_dense_x_unary(c: &mut Criterion) {
             consume_result(out);
         })
     });
+
+    //
+    // Shared variable, binary cardinality:
+    // Dense [0, 1] × Unary [1]
+    //
+    c.bench_function("combine_dense_x_unary_intersect_binary", |b| {
+        let f = dense_factor(vec![VariableId::new(0), VariableId::new(1)], &[2, 2]);
+        let u = unary_factor(VariableId::new(1), 2);
+
+        b.iter(|| {
+            let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
+                black_box(f.clone()),
+                FactorKind::Unary(u.clone()),
+            );
+
+            consume_result(out);
+        })
+    });
 }
 
 fn bench_unary_x_unary(c: &mut Criterion) {
     //
-    // Same variable → Unary result
+    // Same variable -> Unary result
     //
     c.bench_function("combine_unary_x_unary_intersect", |b| {
         let f = unary_factor(VariableId::new(0), 1000);
@@ -140,7 +154,7 @@ fn bench_unary_x_unary(c: &mut Criterion) {
     });
 
     //
-    // Different variables → Dense result
+    // Different variables -> Dense result
     //
     c.bench_function("combine_unary_x_unary_disjoint", |b| {
         let f = unary_factor(VariableId::new(0), 100);
