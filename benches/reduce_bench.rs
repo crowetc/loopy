@@ -6,17 +6,13 @@ use ndarray::{ArrayD, IxDyn};
 use std::hint::black_box;
 
 fn consume_result(out: FactorKind) {
-    match out {
-        FactorKind::Dense(d) => black_box(d.data().len()),
-        FactorKind::Unary(u) => black_box(u.data().len()),
-        FactorKind::Scalar(s) => black_box(s.value() as usize),
-    };
+    black_box(out);
 }
 
 fn make_dense(scope: Vec<VariableId>, shape: &[usize]) -> DenseFactor {
     let size = shape.iter().product();
 
-    let data = vec![0.0_f64; size];
+    let data = (0..size).map(|i| -((i % 17) as f64) * 0.1).collect();
 
     DenseFactor::new(scope, ArrayD::from_shape_vec(IxDyn(shape), data).unwrap())
 }
@@ -43,6 +39,32 @@ fn bench_dense_reduce_single_axis(c: &mut Criterion) {
             let out = <DenseFactor as FactorOps<LogMaxProduct>>::reduce(
                 black_box(f.clone()),
                 black_box(&[VariableId::new(0)]),
+            );
+
+            consume_result(out);
+        })
+    });
+
+    // Smallest nontrivial dense reduction:
+    // two binary variables, reducing to a unary factor.
+    let binary = make_dense(vec![VariableId::new(0), VariableId::new(1)], &[2, 2]);
+
+    c.bench_function("dense_reduce_sum_single_axis_binary", |b| {
+        b.iter(|| {
+            let out = <DenseFactor as FactorOps<LogSumProduct>>::reduce(
+                black_box(binary.clone()),
+                black_box(&[VariableId::new(1)]),
+            );
+
+            consume_result(out);
+        })
+    });
+
+    c.bench_function("dense_reduce_max_single_axis_binary", |b| {
+        b.iter(|| {
+            let out = <DenseFactor as FactorOps<LogMaxProduct>>::reduce(
+                black_box(binary.clone()),
+                black_box(&[VariableId::new(1)]),
             );
 
             consume_result(out);
