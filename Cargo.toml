@@ -33,5 +33,5 @@ harness = false
 
 [[bench]]
 name = "synchronous_bench"
-path = "benches/synchronous_bench.rs"
+path = "benches/synchronous_schedule_bench.rs"
 harness = false
