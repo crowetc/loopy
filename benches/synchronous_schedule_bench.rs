@@ -1,4 +1,3 @@
-
 //! Benchmarks for synchronous belief propagation.
 //!
 //! These benchmarks characterize the performance of Loopy's synchronous
