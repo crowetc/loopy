@@ -1,22 +1,22 @@
 
- //! Benchmarks for synchronous belief propagation.
- //!
- //! These benchmarks characterize the performance of Loopy's synchronous
- //! message-passing schedule across graph sizes, factor arities, variable
- //! cardinalities, and graph topologies.
- //!
- //! Three aspects of execution are measured:
- //! - Initialization: construction of a factor graph and its belief state.
- //! - First step: the initial synchronous update of a fresh belief state.
- //! - Repeated step: the cost of subsequent synchronous updates.
- //!
- //! Repeated-step benchmarks execute one update before measurement, then
- //! reuse the same belief state for all measured iterations. They do not
- //! reset the state or check for convergence.
- //!
- //! Consequently, these benchmarks measure per-iteration computational
- //! cost, not the number of iterations or total time required to converge.
- //! This distinction is particularly important for cyclic graphs.
+//! Benchmarks for synchronous belief propagation.
+//!
+//! These benchmarks characterize the performance of Loopy's synchronous
+//! message-passing schedule across graph sizes, factor arities, variable
+//! cardinalities, and graph topologies.
+//!
+//! Three aspects of execution are measured:
+//! - Initialization: construction of a factor graph and its belief state.
+//! - First step: the initial synchronous update of a fresh belief state.
+//! - Repeated step: the cost of subsequent synchronous updates.
+//!
+//! Repeated-step benchmarks execute one update before measurement, then
+//! reuse the same belief state for all measured iterations. They do not
+//! reset the state or check for convergence.
+//!
+//! Consequently, these benchmarks measure per-iteration computational
+//! cost, not the number of iterations or total time required to converge.
+//! This distinction is particularly important for cyclic graphs.
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use loopy::belief_state::BeliefState;
@@ -38,9 +38,12 @@ fn discrete_variable(name: &str, cardinality: usize) -> Variable {
 
 fn pairwise_factor(lhs: VariableId, rhs: VariableId, cardinality: usize) -> DenseFactor {
     // Favor equal states while assigning nonzero weight to unequal states.
-    let data = Array2::from_shape_fn((cardinality, cardinality), |(i, j)| {
-        if i == j { 0.8 } else { 0.2 }
-    });
+    let data = Array2::from_shape_fn(
+        (cardinality, cardinality),
+        |(i, j)| {
+            if i == j { 0.8 } else { 0.2 }
+        },
+    );
 
     DenseFactor::from_linear(vec![lhs, rhs], data.into_dyn())
 }
@@ -252,21 +255,17 @@ fn bench_first_step(c: &mut Criterion) {
 
 fn bench_synchronous_pairwise(c: &mut Criterion) {
     for length in [10, 100, 1000] {
-        bench_repeated_step(
-            c,
-            &format!("synchronous_step_pairwise_{length}"),
-            || pairwise_chain(length, 2),
-        );
+        bench_repeated_step(c, &format!("synchronous_step_pairwise_{length}"), || {
+            pairwise_chain(length, 2)
+        });
     }
 }
 
 fn bench_synchronous_ternary(c: &mut Criterion) {
     for length in [11, 101, 1001] {
-        bench_repeated_step(
-            c,
-            &format!("synchronous_step_ternary_{length}"),
-            || ternary_chain(length),
-        );
+        bench_repeated_step(c, &format!("synchronous_step_ternary_{length}"), || {
+            ternary_chain(length)
+        });
     }
 }
 
@@ -284,21 +283,17 @@ fn bench_synchronous_cardinality(c: &mut Criterion) {
 
 fn bench_synchronous_tree(c: &mut Criterion) {
     for length in [10, 100, 1000] {
-        bench_repeated_step(
-            c,
-            &format!("synchronous_step_tree_{length}"),
-            || pairwise_tree(length),
-        );
+        bench_repeated_step(c, &format!("synchronous_step_tree_{length}"), || {
+            pairwise_tree(length)
+        });
     }
 }
 
 fn bench_synchronous_cycle(c: &mut Criterion) {
     for length in [10, 100, 1000] {
-        bench_repeated_step(
-            c,
-            &format!("synchronous_step_cycle_{length}"),
-            || pairwise_cycle(length),
-        );
+        bench_repeated_step(c, &format!("synchronous_step_cycle_{length}"), || {
+            pairwise_cycle(length)
+        });
     }
 }
 
