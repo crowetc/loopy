@@ -32,6 +32,6 @@ path = "benches/reduce_bench.rs"
 harness = false
 
 [[bench]]
-name = "synchronous_bench"
+name = "synchronous_schedule_bench"
 path = "benches/synchronous_schedule_bench.rs"
 harness = false
