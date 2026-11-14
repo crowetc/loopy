@@ -141,6 +141,11 @@ impl MessageStore {
         self.messages[id.index()] = Some(message);
     }
 
+    /// Returns the number of message slots in the store.
+    pub(crate) fn num_messages(&self) -> usize {
+        self.messages.len()
+    }
+
     //
     // Adjacency
     //

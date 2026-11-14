@@ -5,8 +5,8 @@
 //! been computed, preserving synchronous update semantics.
 
 use crate::belief_state::BeliefState;
-use crate::factor::{FactorDistance, FactorId, FactorKind, FactorNormalize, FactorOps};
-use crate::message::Message;
+use crate::factor::{FactorDistance, FactorKind, FactorNormalize, FactorOps};
+use crate::message::{Message, MessageId};
 use crate::semiring::Semiring;
 
 use super::Schedule;
@@ -31,19 +31,10 @@ where
     FactorKind: FactorOps<S> + FactorNormalize<S>,
 {
     fn step(&mut self, state: &mut BeliefState<S>) -> f64 {
-        let mut message_ids = Vec::new();
-
-        for index in 0..state.graph().num_factors() {
-            let factor = FactorId::new(index);
-
-            message_ids.extend_from_slice(state.messages().factor_in(factor));
-            message_ids.extend_from_slice(state.messages().factor_out(factor));
-        }
-
         let mut max_residual: f64 = 0.0;
 
-        let updates: Vec<_> = message_ids
-            .into_iter()
+        let updates: Vec<_> = (0..state.messages().num_messages())
+            .map(MessageId::new)
             .filter_map(|id| {
                 let message = compute_message::<S>(state, id)?;
 

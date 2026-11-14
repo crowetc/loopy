@@ -35,7 +35,7 @@ fn bench_dense_x_dense(c: &mut Criterion) {
         b.iter(|| {
             let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
                 black_box(f.clone()),
-                FactorKind::Dense(g.clone()),
+                &FactorKind::Dense(g.clone()),
             );
 
             consume_result(out);
@@ -53,7 +53,7 @@ fn bench_dense_x_dense(c: &mut Criterion) {
         b.iter(|| {
             let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
                 black_box(f.clone()),
-                FactorKind::Dense(g.clone()),
+                &FactorKind::Dense(g.clone()),
             );
 
             consume_result(out);
@@ -71,7 +71,7 @@ fn bench_dense_x_dense(c: &mut Criterion) {
         b.iter(|| {
             let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
                 black_box(f.clone()),
-                FactorKind::Dense(g.clone()),
+                &FactorKind::Dense(g.clone()),
             );
 
             consume_result(out);
@@ -91,7 +91,7 @@ fn bench_dense_x_unary(c: &mut Criterion) {
         b.iter(|| {
             let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
                 black_box(f.clone()),
-                FactorKind::Unary(u.clone()),
+                &FactorKind::Unary(u.clone()),
             );
 
             consume_result(out);
@@ -109,7 +109,7 @@ fn bench_dense_x_unary(c: &mut Criterion) {
         b.iter(|| {
             let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
                 black_box(f.clone()),
-                FactorKind::Unary(u.clone()),
+                &FactorKind::Unary(u.clone()),
             );
 
             consume_result(out);
@@ -127,7 +127,7 @@ fn bench_dense_x_unary(c: &mut Criterion) {
         b.iter(|| {
             let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
                 black_box(f.clone()),
-                FactorKind::Unary(u.clone()),
+                &FactorKind::Unary(u.clone()),
             );
 
             consume_result(out);
@@ -146,7 +146,7 @@ fn bench_unary_x_unary(c: &mut Criterion) {
         b.iter(|| {
             let out = <UnaryFactor as FactorOps<LogSumProduct>>::combine(
                 black_box(f.clone()),
-                FactorKind::Unary(g.clone()),
+                &FactorKind::Unary(g.clone()),
             );
 
             consume_result(out);
@@ -163,7 +163,7 @@ fn bench_unary_x_unary(c: &mut Criterion) {
         b.iter(|| {
             let out = <UnaryFactor as FactorOps<LogSumProduct>>::combine(
                 black_box(f.clone()),
-                FactorKind::Unary(g.clone()),
+                &FactorKind::Unary(g.clone()),
             );
 
             consume_result(out);
