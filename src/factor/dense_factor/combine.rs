@@ -161,7 +161,7 @@ impl DenseFactor {
     /// ```
     ///
     /// The latter case is a straightforward Cartesian product.
-    pub(crate) fn combine_unary(self, unary: &UnaryFactor) -> DenseFactor {
+    pub(crate) fn combine_unary(mut self, unary: &UnaryFactor) -> DenseFactor {
         debug_assert_eq!(
             unary.scope().len(),
             1,
@@ -185,62 +185,13 @@ impl DenseFactor {
                 "Cardinality mismatch in factors"
             );
 
-            // Dense: [common, dense-only]
-            let mut lhs_order = Vec::with_capacity(self.scope.len());
-            lhs_order.extend_from_slice(&alignment.lhs_common);
-            lhs_order.extend_from_slice(&alignment.lhs_only);
-
-            // Output: [common, dense-only]
-            let mut out_order = Vec::with_capacity(alignment.union_vars.len());
-
-            out_order.extend(
-                alignment
-                    .lhs_common
-                    .iter()
-                    .map(|&axis| alignment.lhs_to_out[axis]),
-            );
-
-            out_order.extend(
-                alignment
-                    .lhs_only
-                    .iter()
-                    .map(|&axis| alignment.lhs_to_out[axis]),
-            );
-
-            let dense_view = self.data.view().permuted_axes(lhs_order);
-
-            let out_card = alignment.output_card(self.card(), unary.card());
-            let mut out_data = ArrayD::<f64>::zeros(IxDyn(&out_card));
-
-            let mut out_view = out_data.view_mut().permuted_axes(out_order);
-
-            let dense_only_size = alignment
-                .lhs_only
-                .iter()
-                .map(|&axis| self.card()[axis])
-                .product::<usize>();
-
-            let unary_data = unary.data();
-
-            let mut dense_iter = dense_view.iter();
-            let mut out_iter = out_view.iter_mut();
-
-            for &u in unary_data.iter() {
-                for _ in 0..dense_only_size {
-                    let x = *dense_iter
-                        .next()
-                        .expect("dense iterator length must match shape");
-
-                    *out_iter
-                        .next()
-                        .expect("output iterator length must match shape") = x + u;
+            for mut lane in self.data.lanes_mut(ndarray::Axis(dense_common_axis)) {
+                for (value, &u) in lane.iter_mut().zip(unary.data().iter()) {
+                    *value += u;
                 }
             }
 
-            debug_assert!(dense_iter.next().is_none());
-            debug_assert!(out_iter.next().is_none());
-
-            DenseFactor::new(alignment.union_vars, out_data)
+            return self;
         } else {
             //
             // Case 2: unary variable is disjoint from the dense factor.
