@@ -93,14 +93,13 @@ impl UnaryFactor {
                 lhs_var
             );
 
-            let data = self
-                .data
-                .iter()
-                .zip(other.data.iter())
-                .map(|(&lhs, &rhs)| lhs + rhs)
-                .collect();
+            let mut result = self;
 
-            return FactorKind::Unary(UnaryFactor::new(lhs_var, data));
+            for (lhs, rhs) in result.data.iter_mut().zip(other.data.iter()) {
+                *lhs += rhs;
+            }
+
+            return FactorKind::Unary(result);
         }
 
         // Disjoint variables: result becomes a dense Cartesian product.

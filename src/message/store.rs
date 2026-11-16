@@ -31,11 +31,11 @@ use crate::variable::VariableId;
 #[derive(Debug)]
 pub(crate) struct MessageStore {
     messages: Vec<Option<Message>>,
+
     edges: Vec<DirectedEdge>,
 
     variable_out: Vec<Vec<MessageId>>,
     variable_in: Vec<Vec<MessageId>>,
-
     factor_out: Vec<Vec<MessageId>>,
     factor_in: Vec<Vec<MessageId>>,
 }

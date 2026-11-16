@@ -191,7 +191,7 @@ impl DenseFactor {
                 }
             }
 
-            return self;
+            self
         } else {
             //
             // Case 2: unary variable is disjoint from the dense factor.

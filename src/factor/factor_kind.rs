@@ -1,4 +1,3 @@
-use crate::message::Message;
 use crate::semiring::Semiring;
 use crate::variable::VariableId;
 
