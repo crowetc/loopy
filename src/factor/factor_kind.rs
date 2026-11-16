@@ -79,7 +79,7 @@ where
         }
     }
 
-    fn combine(self, other: FactorKind) -> FactorKind {
+    fn combine(self, other: &FactorKind) -> FactorKind {
         match self {
             Self::Dense(factor) => <DenseFactor as FactorOps<S>>::combine(factor, other),
             Self::Scalar(factor) => <ScalarFactor as FactorOps<S>>::combine(factor, other),

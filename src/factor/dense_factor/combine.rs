@@ -25,7 +25,7 @@ impl DenseFactor {
     ///
     /// This makes the Cartesian-product combination a simple nested
     /// iteration over contiguous logical blocks.
-    pub(super) fn combine_dense(&self, other: &DenseFactor) -> DenseFactor {
+    pub(crate) fn combine_dense(&self, other: &DenseFactor) -> DenseFactor {
         let alignment = build_alignment(&self.scope, &other.scope);
 
         //
@@ -161,7 +161,7 @@ impl DenseFactor {
     /// ```
     ///
     /// The latter case is a straightforward Cartesian product.
-    pub(super) fn combine_unary(&self, unary: &UnaryFactor) -> DenseFactor {
+    pub(crate) fn combine_unary(mut self, unary: &UnaryFactor) -> DenseFactor {
         debug_assert_eq!(
             unary.scope().len(),
             1,
@@ -185,62 +185,13 @@ impl DenseFactor {
                 "Cardinality mismatch in factors"
             );
 
-            // Dense: [common, dense-only]
-            let mut lhs_order = Vec::with_capacity(self.scope.len());
-            lhs_order.extend_from_slice(&alignment.lhs_common);
-            lhs_order.extend_from_slice(&alignment.lhs_only);
-
-            // Output: [common, dense-only]
-            let mut out_order = Vec::with_capacity(alignment.union_vars.len());
-
-            out_order.extend(
-                alignment
-                    .lhs_common
-                    .iter()
-                    .map(|&axis| alignment.lhs_to_out[axis]),
-            );
-
-            out_order.extend(
-                alignment
-                    .lhs_only
-                    .iter()
-                    .map(|&axis| alignment.lhs_to_out[axis]),
-            );
-
-            let dense_view = self.data.view().permuted_axes(lhs_order);
-
-            let out_card = alignment.output_card(self.card(), unary.card());
-            let mut out_data = ArrayD::<f64>::zeros(IxDyn(&out_card));
-
-            let mut out_view = out_data.view_mut().permuted_axes(out_order);
-
-            let dense_only_size = alignment
-                .lhs_only
-                .iter()
-                .map(|&axis| self.card()[axis])
-                .product::<usize>();
-
-            let unary_data = unary.data();
-
-            let mut dense_iter = dense_view.iter();
-            let mut out_iter = out_view.iter_mut();
-
-            for &u in unary_data.iter() {
-                for _ in 0..dense_only_size {
-                    let x = *dense_iter
-                        .next()
-                        .expect("dense iterator length must match shape");
-
-                    *out_iter
-                        .next()
-                        .expect("output iterator length must match shape") = x + u;
+            for mut lane in self.data.lanes_mut(ndarray::Axis(dense_common_axis)) {
+                for (value, &u) in lane.iter_mut().zip(unary.data().iter()) {
+                    *value += u;
                 }
             }
 
-            debug_assert!(dense_iter.next().is_none());
-            debug_assert!(out_iter.next().is_none());
-
-            DenseFactor::new(alignment.union_vars, out_data)
+            self
         } else {
             //
             // Case 2: unary variable is disjoint from the dense factor.
@@ -277,7 +228,8 @@ impl DenseFactor {
             let unary_data = unary.data();
 
             let dense_iter = dense_view.iter();
-            let mut out_iter = out_data.iter_mut();
+            let mut out_view = out_data.view_mut().permuted_axes(out_order);
+            let mut out_iter = out_view.iter_mut();
 
             for &u in unary_data.iter() {
                 for &x in dense_iter.clone() {
@@ -341,118 +293,78 @@ impl Alignment {
     }
 }
 
-/// Builds the alignment between two factor scopes.
+/// Builds the alignment between two canonically ordered factor scopes.
+///
+/// Both input scopes must be sorted in ascending variable order.
 fn build_alignment(lhs_scope: &[VariableId], rhs_scope: &[VariableId]) -> Alignment {
-    //
-    // Sort Scopes
-    //
-    let mut lhs_sorted: Vec<(VariableId, usize)> = lhs_scope
-        .iter()
-        .enumerate()
-        .map(|(axis, &var)| (var, axis))
-        .collect();
+    debug_assert!(lhs_scope.windows(2).all(|w| w[0] < w[1]));
+    debug_assert!(rhs_scope.windows(2).all(|w| w[0] < w[1]));
 
-    let mut rhs_sorted: Vec<(VariableId, usize)> = rhs_scope
-        .iter()
-        .enumerate()
-        .map(|(axis, &var)| (var, axis))
-        .collect();
-
-    lhs_sorted.sort_unstable_by_key(|&(var, _)| var);
-    rhs_sorted.sort_unstable_by_key(|&(var, _)| var);
-
-    //
-    // Initialize containers
-    //
-    let lhs_len = lhs_sorted.len();
-    let rhs_len = rhs_sorted.len();
-    let common_capacity = lhs_len.min(rhs_len);
+    let lhs_len = lhs_scope.len();
+    let rhs_len = rhs_scope.len();
 
     let mut union_vars = Vec::with_capacity(lhs_len + rhs_len);
 
     let mut lhs_only = Vec::with_capacity(lhs_len);
     let mut rhs_only = Vec::with_capacity(rhs_len);
 
-    let mut lhs_common = Vec::with_capacity(common_capacity);
-    let mut rhs_common = Vec::with_capacity(common_capacity);
+    let mut lhs_common = Vec::with_capacity(lhs_len.min(rhs_len));
+    let mut rhs_common = Vec::with_capacity(lhs_len.min(rhs_len));
 
     let mut lhs_to_out = vec![usize::MAX; lhs_len];
     let mut rhs_to_out = vec![usize::MAX; rhs_len];
 
     let mut i = 0;
     let mut j = 0;
-    let mut out_axis = 0;
 
-    //
-    // Merge walk
-    //
-
-    // Walk the sorted scopes together, building the sorted union and recording
-    // whether each variable is shared or belongs to only one input.
+    // Merge the two sorted scopes.
     while i < lhs_len && j < rhs_len {
-        let (lhs_var, lhs_axis) = lhs_sorted[i];
-        let (rhs_var, rhs_axis) = rhs_sorted[j];
+        let out_axis = union_vars.len();
 
-        match lhs_var.cmp(&rhs_var) {
+        match lhs_scope[i].cmp(&rhs_scope[j]) {
             std::cmp::Ordering::Equal => {
-                // Common variable
-                lhs_common.push(lhs_axis);
-                rhs_common.push(rhs_axis);
-                union_vars.push(lhs_var);
+                lhs_common.push(i);
+                rhs_common.push(j);
+                union_vars.push(lhs_scope[i]);
 
-                lhs_to_out[lhs_axis] = out_axis;
-                rhs_to_out[rhs_axis] = out_axis;
+                lhs_to_out[i] = out_axis;
+                rhs_to_out[j] = out_axis;
 
-                out_axis += 1;
                 i += 1;
                 j += 1;
             }
 
             std::cmp::Ordering::Less => {
-                // Lhs-only variable
-                lhs_only.push(lhs_axis);
-                union_vars.push(lhs_var);
+                lhs_only.push(i);
+                union_vars.push(lhs_scope[i]);
 
-                lhs_to_out[lhs_axis] = out_axis;
-
-                out_axis += 1;
+                lhs_to_out[i] = out_axis;
                 i += 1;
             }
 
             std::cmp::Ordering::Greater => {
-                // Rhs-only variable
-                rhs_only.push(rhs_axis);
-                union_vars.push(rhs_var);
+                rhs_only.push(j);
+                union_vars.push(rhs_scope[j]);
 
-                rhs_to_out[rhs_axis] = out_axis;
-
-                out_axis += 1;
+                rhs_to_out[j] = out_axis;
                 j += 1;
             }
         }
     }
 
-    // Remaining lhs-only
+    // Append any remaining left-hand variables.
     while i < lhs_len {
-        let (var, axis) = lhs_sorted[i];
-
-        lhs_only.push(axis);
-        union_vars.push(var);
-        lhs_to_out[axis] = out_axis;
-
-        out_axis += 1;
+        lhs_to_out[i] = union_vars.len();
+        lhs_only.push(i);
+        union_vars.push(lhs_scope[i]);
         i += 1;
     }
 
-    // Remaining rhs-only
+    // Append any remaining right-hand variables.
     while j < rhs_len {
-        let (var, axis) = rhs_sorted[j];
-
-        rhs_only.push(axis);
-        union_vars.push(var);
-        rhs_to_out[axis] = out_axis;
-
-        out_axis += 1;
+        rhs_to_out[j] = union_vars.len();
+        rhs_only.push(j);
+        union_vars.push(rhs_scope[j]);
         j += 1;
     }
 

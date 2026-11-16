@@ -106,51 +106,29 @@ struct Reduction {
 
 /// Builds the reduction plan for the specified variables.
 ///
-/// Returns `None` when none of the requested variables appear in the factor
-/// scope.
+/// The factor scope must be in ascending variable order. Variables to
+/// eliminate may be supplied in any order.
+///
+/// Returns `None` when none of the requested variables appear in the
+/// factor scope.
 fn build_reduction(
     scope: &[VariableId],
     shape: &[usize],
     vars: &[VariableId],
 ) -> Option<Reduction> {
-    //
-    // Sort scope by variable ID while retaining original axis indices.
-    //
+    debug_assert!(scope.windows(2).all(|w| w[0] < w[1]));
+    debug_assert_eq!(scope.len(), shape.len());
 
-    // Sort by variable ID while retaining each variable's original axis.
-    let mut scope_sorted: Vec<(VariableId, usize)> = scope
-        .iter()
-        .enumerate()
-        .map(|(axis, &var)| (var, axis))
-        .collect();
-
-    scope_sorted.sort_unstable_by_key(|&(var, _)| var);
-
-    //
-    // Sort variables to eliminate.
-    //
-
-    let mut vars_sorted = vars.to_vec();
-    vars_sorted.sort_unstable();
-
-    let mut idx_marg = Vec::with_capacity(vars_sorted.len());
+    let mut idx_marg = Vec::with_capacity(vars.len());
     let mut idx_keep = Vec::with_capacity(scope.len());
     let mut new_scope = Vec::with_capacity(scope.len());
 
-    let mut j = 0;
-
-    for &(v, axis) in &scope_sorted {
-        while j < vars_sorted.len() && vars_sorted[j] < v {
-            j += 1;
-        }
-
-        let eliminate = j < vars_sorted.len() && vars_sorted[j] == v;
-
-        if eliminate {
+    for (axis, &variable) in scope.iter().enumerate() {
+        if vars.contains(&variable) {
             idx_marg.push(axis);
         } else {
             idx_keep.push(axis);
-            new_scope.push(v);
+            new_scope.push(variable);
         }
     }
 
@@ -158,22 +136,14 @@ fn build_reduction(
         return None;
     }
 
-    //
-    // Permutation: kept axes first, eliminated axes second.
-    //
-
+    // Permutation: retained axes first, eliminated axes second.
     let mut order = Vec::with_capacity(scope.len());
     order.extend_from_slice(&idx_keep);
     order.extend_from_slice(&idx_marg);
 
-    //
-    // Output shape and block sizes.
-    //
-
     let kept_shape: Vec<usize> = idx_keep.iter().map(|&axis| shape[axis]).collect();
 
-    let kept_size = kept_shape.iter().product::<usize>();
-
+    let kept_size = kept_shape.iter().product();
     let elim_size = idx_marg.iter().map(|&axis| shape[axis]).product();
 
     Some(Reduction {

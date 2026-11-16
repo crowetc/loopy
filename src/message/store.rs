@@ -31,11 +31,11 @@ use crate::variable::VariableId;
 #[derive(Debug)]
 pub(crate) struct MessageStore {
     messages: Vec<Option<Message>>,
+
     edges: Vec<DirectedEdge>,
 
     variable_out: Vec<Vec<MessageId>>,
     variable_in: Vec<Vec<MessageId>>,
-
     factor_out: Vec<Vec<MessageId>>,
     factor_in: Vec<Vec<MessageId>>,
 }
@@ -139,6 +139,11 @@ impl MessageStore {
     /// Any previously computed message for the edge is replaced.
     pub(crate) fn set(&mut self, id: MessageId, message: Message) {
         self.messages[id.index()] = Some(message);
+    }
+
+    /// Returns the number of message slots in the store.
+    pub(crate) fn num_messages(&self) -> usize {
+        self.messages.len()
     }
 
     //

@@ -44,9 +44,12 @@ impl DenseFactor {
     /// an impossible assignment. Positive infinity and NaN are not supported and
     /// are not checked at construction.
     ///
+    /// The scope is stored in ascending variable order. Data axes are permuted
+    /// accordingly without copying the underlying values.
+    ///
     /// # Panics
     /// Panics if the number of variables in `scope` does not equal the number
-    /// of dimensions in `data`.
+    /// of dimensions in `data`, or if the scope contains duplicate variables.
     pub fn new(scope: Vec<VariableId>, data: ArrayD<f64>) -> Self {
         assert_eq!(
             scope.len(),
@@ -54,29 +57,40 @@ impl DenseFactor {
             "scope length must match number of data dimensions"
         );
 
-        Self { scope, data }
+        let mut order: Vec<usize> = (0..scope.len()).collect();
+        order.sort_unstable_by_key(|&axis| scope[axis]);
+
+        let sorted_scope: Vec<_> = order.iter().map(|&axis| scope[axis]).collect();
+
+        assert!(
+            sorted_scope.windows(2).all(|pair| pair[0] != pair[1]),
+            "factor scope must not contain duplicate variables"
+        );
+
+        let data = data.permuted_axes(order);
+
+        Self {
+            scope: sorted_scope,
+            data,
+        }
     }
 
-    /// Construct a dense factor from linear-space values.
+    /// Constructs a dense factor from linear-space values.
     ///
     /// Values must be finite and nonnegative. Zero-valued entries represent
     /// impossible assignments and are stored as negative infinity in log-space.
     /// Infinite and NaN values are not supported and are not checked at
     /// construction.
     ///
+    /// The scope is stored in ascending variable order, with data axes
+    /// permuted accordingly.
+    ///
     /// # Panics
     /// Panics if the number of variables in `scope` does not equal the number
-    /// of dimensions in `linear`.
+    /// of dimensions in `linear`, or if the scope contains duplicate variables.
     pub fn from_linear(scope: Vec<VariableId>, linear: ArrayD<f64>) -> Self {
-        assert_eq!(
-            scope.len(),
-            linear.ndim(),
-            "scope length must match number of data dimensions"
-        );
-
-        let data = linear.mapv(|x| x.ln());
-
-        Self { scope, data }
+        let data = linear.mapv(f64::ln);
+        Self::new(scope, data)
     }
 
     /// Returns the factor values in log-space.
@@ -179,13 +193,12 @@ impl FactorOps<LogSumProduct> for DenseFactor {
         self.reduce_sum_kernel(vars).into_factor_kind()
     }
 
-    fn combine(self, other: FactorKind) -> FactorKind {
+    fn combine(self, other: &FactorKind) -> FactorKind {
         match other {
-            FactorKind::Dense(other) => FactorKind::Dense(self.combine_dense(&other)),
-            FactorKind::Unary(unary) => FactorKind::Dense(self.combine_unary(&unary)),
-
-            FactorKind::Scalar(s) => {
-                let data = self.data.mapv(|x| x + s.value());
+            FactorKind::Dense(rhs) => FactorKind::Dense(self.combine_dense(rhs)),
+            FactorKind::Unary(rhs) => FactorKind::Dense(self.combine_unary(rhs)),
+            FactorKind::Scalar(rhs) => {
+                let data = self.data.mapv(|x| x + rhs.value());
                 FactorKind::Dense(DenseFactor::new(self.scope, data))
             }
         }
@@ -197,13 +210,12 @@ impl FactorOps<LogMaxProduct> for DenseFactor {
         self.reduce_max_kernel(vars).into_factor_kind()
     }
 
-    fn combine(self, other: FactorKind) -> FactorKind {
+    fn combine(self, other: &FactorKind) -> FactorKind {
         match other {
-            FactorKind::Dense(other) => FactorKind::Dense(self.combine_dense(&other)),
-            FactorKind::Unary(unary) => FactorKind::Dense(self.combine_unary(&unary)),
-
-            FactorKind::Scalar(s) => {
-                let data = self.data.mapv(|x| x + s.value());
+            FactorKind::Dense(rhs) => FactorKind::Dense(self.combine_dense(rhs)),
+            FactorKind::Unary(rhs) => FactorKind::Dense(self.combine_unary(rhs)),
+            FactorKind::Scalar(rhs) => {
+                let data = self.data.mapv(|x| x + rhs.value());
                 FactorKind::Dense(DenseFactor::new(self.scope, data))
             }
         }
@@ -267,6 +279,28 @@ mod tests {
         );
         assert_eq!(f.scope(), &[v(0), v(1)]);
         assert_eq!(f.data().ndim(), 2);
+    }
+
+    #[test]
+    fn canonicalizes_scope_without_copying_data() {
+        let x = VariableId::new(0);
+        let y = VariableId::new(1);
+
+        let data = ndarray::arr2(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).into_dyn();
+
+        let original_ptr = data.as_ptr();
+
+        let factor = DenseFactor::new(vec![y, x], data);
+
+        assert_eq!(factor.scope(), &[x, y]);
+        assert_eq!(factor.data().shape(), &[3, 2]);
+
+        assert_eq!(
+            factor.data(),
+            &ndarray::arr2(&[[1.0, 4.0], [2.0, 5.0], [3.0, 6.0],]).into_dyn()
+        );
+
+        assert_eq!(factor.data().as_ptr(), original_ptr);
     }
 
     //
@@ -526,7 +560,7 @@ mod tests {
             arr2(&[[10.0, 20.0], [30.0, 40.0]]).into_dyn(),
         );
 
-        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Dense(g))
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, &FactorKind::Dense(g))
         {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
@@ -546,7 +580,7 @@ mod tests {
 
         let g = DenseFactor::new(vec![v(1)], arr1(&[10.0, 20.0]).into_dyn());
 
-        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Dense(g))
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, &FactorKind::Dense(g))
         {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
@@ -564,7 +598,7 @@ mod tests {
 
         let u = UnaryFactor::new(v(1), vec![10.0, 20.0]);
 
-        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(u))
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, &FactorKind::Unary(u))
         {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
@@ -582,14 +616,14 @@ mod tests {
 
         let u = UnaryFactor::new(v(2), vec![10.0, 20.0]);
 
-        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(u))
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, &FactorKind::Unary(u))
         {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
         };
 
         let expected =
-            array![[[11.0, 12.0], [13.0, 14.0]], [[21.0, 22.0], [23.0, 24.0]],].into_dyn();
+            array![[[11.0, 21.0], [12.0, 22.0]], [[13.0, 23.0], [14.0, 24.0]],].into_dyn();
 
         assert_eq!(out.scope(), &[v(0), v(1), v(2)]);
         assert_eq!(out.data(), &expected);
@@ -607,7 +641,7 @@ mod tests {
             array![[10.0, 20.0], [30.0, 40.0],].into_dyn(),
         );
 
-        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Dense(g))
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, &FactorKind::Dense(g))
         {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
@@ -630,7 +664,7 @@ mod tests {
 
         let u = UnaryFactor::new(v(1), vec![10.0, 20.0]);
 
-        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(u))
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, &FactorKind::Unary(u))
         {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),
@@ -649,7 +683,7 @@ mod tests {
 
         let u = UnaryFactor::new(v(1), vec![f64::NEG_INFINITY, 10.0]);
 
-        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, FactorKind::Unary(u))
+        let out = match <DenseFactor as FactorOps<LogSumProduct>>::combine(f, &FactorKind::Unary(u))
         {
             FactorKind::Dense(d) => d,
             _ => panic!("Expected dense"),

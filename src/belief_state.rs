@@ -97,9 +97,7 @@ where
             belief = Some(match belief {
                 None => message.factor().clone(),
 
-                Some(factor) => {
-                    <FactorKind as FactorOps<S>>::combine(factor, message.factor().clone())
-                }
+                Some(factor) => <FactorKind as FactorOps<S>>::combine(factor, message.factor()),
             });
         }
 

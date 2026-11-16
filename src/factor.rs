@@ -98,10 +98,10 @@ pub trait FactorDistance: Factor {
 /// log-sum-exp, while under [`LogMaxProduct`] it eliminates variables using a
 /// maximum.
 ///
-/// Both operations consume the factor and return a [`FactorKind`] because the
-/// resulting representation may differ from the input. In particular,
-/// reduction may lower the dimensionality of a factor and combination may
-/// increase it.
+/// Both operations consume the left-hand factor and return a [`FactorKind`]
+/// because the resulting representation may differ from the input. In
+/// particular, reduction may lower the dimensionality of a factor, while
+/// combination may increase it.
 pub trait FactorOps<S: Semiring>: Factor {
     /// Eliminates the specified variables from the factor.
     ///
@@ -112,7 +112,7 @@ pub trait FactorOps<S: Semiring>: Factor {
     ///
     /// The resulting factor has scope equal to the union of the two input
     /// scopes.
-    fn combine(self, other: FactorKind) -> FactorKind;
+    fn combine(self, other: &FactorKind) -> FactorKind;
 }
 
 /// Semiring-dependent normalization supported by a factor.

@@ -5,8 +5,8 @@
 //! been computed, preserving synchronous update semantics.
 
 use crate::belief_state::BeliefState;
-use crate::factor::{FactorDistance, FactorId, FactorKind, FactorNormalize, FactorOps};
-use crate::message::Message;
+use crate::factor::{FactorDistance, FactorKind, FactorNormalize, FactorOps};
+use crate::message::{Message, MessageId};
 use crate::semiring::Semiring;
 
 use super::Schedule;
@@ -16,12 +16,14 @@ use super::updates::compute_message;
 ///
 /// Message updates are staged for an entire iteration before being committed,
 /// so no update is visible to another message computed in the same iteration.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Synchronous;
+#[derive(Clone, Debug, Default)]
+pub struct Synchronous {
+    updates: Vec<(MessageId, Message)>,
+}
 
 impl Synchronous {
     pub fn new() -> Self {
-        Self
+        Self::default()
     }
 }
 
@@ -31,39 +33,33 @@ where
     FactorKind: FactorOps<S> + FactorNormalize<S>,
 {
     fn step(&mut self, state: &mut BeliefState<S>) -> f64 {
-        let mut message_ids = Vec::new();
-
-        for index in 0..state.graph().num_factors() {
-            let factor = FactorId::new(index);
-
-            message_ids.extend_from_slice(state.messages().factor_in(factor));
-            message_ids.extend_from_slice(state.messages().factor_out(factor));
-        }
-
         let mut max_residual: f64 = 0.0;
 
-        let updates: Vec<_> = message_ids
-            .into_iter()
-            .filter_map(|id| {
-                let message = compute_message::<S>(state, id)?;
+        self.updates.clear();
 
-                let factor = <FactorKind as FactorNormalize<S>>::normalize(message.into_factor());
+        for index in 0..state.messages().num_messages() {
+            let id = MessageId::new(index);
 
-                let message = Message::try_from(factor)
-                    .expect("normalization must preserve message dimensionality");
+            let Some(message) = compute_message::<S>(state, id) else {
+                continue;
+            };
 
-                let residual = match state.messages().get(id) {
-                    Some(previous) => message.factor().distance(previous.factor()),
-                    None => f64::INFINITY,
-                };
+            let factor = <FactorKind as FactorNormalize<S>>::normalize(message.into_factor());
 
-                max_residual = max_residual.max(residual);
+            let message = Message::try_from(factor)
+                .expect("normalization must preserve message dimensionality");
 
-                Some((id, message))
-            })
-            .collect();
+            let residual = match state.messages().get(id) {
+                Some(previous) => message.factor().distance(previous.factor()),
+                None => f64::INFINITY,
+            };
 
-        for (id, message) in updates {
+            max_residual = max_residual.max(residual);
+
+            self.updates.push((id, message));
+        }
+
+        for (id, message) in self.updates.drain(..) {
             state.messages_mut().set(id, message);
         }
 
