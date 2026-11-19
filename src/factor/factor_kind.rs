@@ -86,6 +86,34 @@ where
             Self::Unary(factor) => <UnaryFactor as FactorOps<S>>::combine(factor, other),
         }
     }
+
+    fn combine_into(&self, other: &FactorKind, output: &mut FactorKind) {
+        match self {
+            Self::Dense(factor) => {
+                <DenseFactor as FactorOps<S>>::combine_into(factor, other, output);
+            }
+            Self::Scalar(factor) => {
+                <ScalarFactor as FactorOps<S>>::combine_into(factor, other, output);
+            }
+            Self::Unary(factor) => {
+                <UnaryFactor as FactorOps<S>>::combine_into(factor, other, output);
+            }
+        }
+    }
+
+    fn reduce_into(&self, vars: &[VariableId], output: &mut FactorKind) {
+        match self {
+            Self::Dense(factor) => {
+                <DenseFactor as FactorOps<S>>::reduce_into(factor, vars, output);
+            }
+            Self::Scalar(factor) => {
+                <ScalarFactor as FactorOps<S>>::reduce_into(factor, vars, output);
+            }
+            Self::Unary(factor) => {
+                <UnaryFactor as FactorOps<S>>::reduce_into(factor, vars, output);
+            }
+        }
+    }
 }
 
 impl<S: Semiring> FactorNormalize<S> for FactorKind

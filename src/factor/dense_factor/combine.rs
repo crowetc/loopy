@@ -7,7 +7,7 @@
 use ndarray::{ArrayD, IxDyn};
 
 use super::DenseFactor;
-use crate::factor::{DiscreteFactor, Factor, UnaryFactor};
+use crate::factor::{DiscreteFactor, Factor, FactorKind, ScalarFactor, UnaryFactor};
 use crate::variable::VariableId;
 
 impl DenseFactor {
@@ -144,6 +144,35 @@ impl DenseFactor {
         DenseFactor::new(alignment.union_vars, out_data)
     }
 
+    /// Combines two dense factors, writing the result into `output`.
+    ///
+    /// Reuses the destination's storage when both inputs and the destination
+    /// have identical scopes and cardinalities. Otherwise, constructs a new
+    /// dense factor and replaces the destination.
+    pub(crate) fn combine_dense_into(&self, other: &DenseFactor, output: &mut FactorKind) {
+        if self.scope == other.scope {
+            assert_eq!(self.card(), other.card(), "Cardinality mismatch in factors");
+
+            if let FactorKind::Dense(result) = output
+                && result.scope == self.scope
+                && result.card() == self.card()
+            {
+                for ((out, lhs), rhs) in result
+                    .data
+                    .iter_mut()
+                    .zip(self.data.iter())
+                    .zip(other.data.iter())
+                {
+                    *out = lhs + rhs;
+                }
+
+                return;
+            }
+        }
+
+        *output = FactorKind::Dense(self.combine_dense(other));
+    }
+
     /// Combines a dense factor with a unary factor.
     ///
     /// For a shared variable:
@@ -185,6 +214,23 @@ impl DenseFactor {
                 "Cardinality mismatch in factors"
             );
 
+            // Fast path: unary variable is the last axis and
+            // dense data is contiguous in standard layout.
+            if dense_common_axis == self.data.ndim() - 1
+                && let Some(data) = self.data.as_slice_mut()
+            {
+                let card = unary.card()[UNARY_AXIS];
+
+                for row in data.chunks_exact_mut(card) {
+                    for (value, &u) in row.iter_mut().zip(unary.data().iter()) {
+                        *value += u;
+                    }
+                }
+
+                return self;
+            }
+
+            // General path: arbitrary axes and memory layouts.
             for mut lane in self.data.lanes_mut(ndarray::Axis(dense_common_axis)) {
                 for (value, &u) in lane.iter_mut().zip(unary.data().iter()) {
                     *value += u;
@@ -243,6 +289,159 @@ impl DenseFactor {
 
             DenseFactor::new(alignment.union_vars, out_data)
         }
+    }
+
+    pub(crate) fn combine_unary_into(&self, unary: &UnaryFactor, output: &mut FactorKind) {
+        if let Ok(axis) = self.scope.binary_search(&unary.scope()[0]) {
+            assert_eq!(
+                self.card()[axis],
+                unary.card()[0],
+                "Cardinality mismatch in factors"
+            );
+
+            if let FactorKind::Dense(result) = output
+                && result.scope == self.scope
+                && result.card() == self.card()
+            {
+                // Fast path: standard row-major layouts.
+                if self.data.is_standard_layout()
+                    && result.data.is_standard_layout()
+                    && let (Some(lhs), Some(out)) =
+                        (self.data.as_slice(), result.data.as_slice_mut())
+                {
+                    let inner: usize = self.card()[axis + 1..].iter().product();
+                    let card = unary.card()[0];
+                    let unary_data = unary.data();
+
+                    if inner == 1 {
+                        for (out_row, lhs_row) in
+                            out.chunks_exact_mut(card).zip(lhs.chunks_exact(card))
+                        {
+                            for ((dst, &src), &u) in out_row
+                                .iter_mut()
+                                .zip(lhs_row.iter())
+                                .zip(unary_data.iter())
+                            {
+                                *dst = src + u;
+                            }
+                        }
+                    } else {
+                        let block_size = card * inner;
+
+                        for (lhs_block, out_block) in lhs
+                            .chunks_exact(block_size)
+                            .zip(out.chunks_exact_mut(block_size))
+                        {
+                            for (state, &u) in unary_data.iter().enumerate() {
+                                let start = state * inner;
+                                let end = start + inner;
+
+                                for (&src, dst) in lhs_block[start..end]
+                                    .iter()
+                                    .zip(out_block[start..end].iter_mut())
+                                {
+                                    *dst = src + u;
+                                }
+                            }
+                        }
+                    }
+
+                    return;
+                }
+
+                // Fast path: matching contiguous physical layouts,
+                // including nonstandard axis orders.
+                if self.data.strides() == result.data.strides()
+                    && let (Some(lhs), Some(out)) = (
+                        self.data.as_slice_memory_order(),
+                        result.data.as_slice_memory_order_mut(),
+                    )
+                {
+                    let card = unary.card()[0];
+                    let inner = self.data.strides()[axis] as usize;
+                    let block_size = card * inner;
+                    let unary_data = unary.data();
+
+                    if inner == 1 {
+                        for (out_row, lhs_row) in
+                            out.chunks_exact_mut(card).zip(lhs.chunks_exact(card))
+                        {
+                            for ((dst, &src), &u) in out_row
+                                .iter_mut()
+                                .zip(lhs_row.iter())
+                                .zip(unary_data.iter())
+                            {
+                                *dst = src + u;
+                            }
+                        }
+                    } else {
+                        for (lhs_block, out_block) in lhs
+                            .chunks_exact(block_size)
+                            .zip(out.chunks_exact_mut(block_size))
+                        {
+                            for (state, &u) in unary_data.iter().enumerate() {
+                                let start = state * inner;
+                                let end = start + inner;
+
+                                for (&src, dst) in lhs_block[start..end]
+                                    .iter()
+                                    .zip(out_block[start..end].iter_mut())
+                                {
+                                    *dst = src + u;
+                                }
+                            }
+                        }
+                    }
+
+                    return;
+                }
+
+                // General fallback: arbitrary or mismatched layouts.
+                let axis = ndarray::Axis(axis);
+
+                for (mut out_lane, lhs_lane) in result
+                    .data
+                    .lanes_mut(axis)
+                    .into_iter()
+                    .zip(self.data.lanes(axis))
+                {
+                    for ((out, &lhs), &rhs) in out_lane
+                        .iter_mut()
+                        .zip(lhs_lane.iter())
+                        .zip(unary.data().iter())
+                    {
+                        *out = lhs + rhs;
+                    }
+                }
+
+                return;
+            }
+        }
+
+        // Fallback: incompatible destination or disjoint scopes.
+        *output = FactorKind::Dense(self.clone().combine_unary(unary));
+    }
+
+    /// Combines a dense factor with a scalar factor, writing into `output`.
+    ///
+    /// Reuses the destination's storage when its scope and shape match
+    /// the dense factor. Otherwise, replaces the destination.
+    pub(crate) fn combine_scalar_into(&self, scalar: &ScalarFactor, output: &mut FactorKind) {
+        if let FactorKind::Dense(result) = output
+            && result.scope == self.scope
+            && result.card() == self.card()
+        {
+            for (out, lhs) in result.data.iter_mut().zip(self.data.iter()) {
+                *out = lhs + scalar.value();
+            }
+
+            return;
+        }
+
+        *output = FactorKind::Dense(DenseFactor::new(
+            self.scope.clone(),
+            self.data.mapv(|x| x + scalar.value()),
+        ));
     }
 }
 

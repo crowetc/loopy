@@ -102,7 +102,7 @@ pub trait FactorDistance: Factor {
 /// because the resulting representation may differ from the input. In
 /// particular, reduction may lower the dimensionality of a factor, while
 /// combination may increase it.
-pub trait FactorOps<S: Semiring>: Factor {
+pub trait FactorOps<S: Semiring>: Factor + Clone {
     /// Eliminates the specified variables from the factor.
     ///
     /// Variables not present in the factor's scope have no effect.
@@ -113,6 +113,22 @@ pub trait FactorOps<S: Semiring>: Factor {
     /// The resulting factor has scope equal to the union of the two input
     /// scopes.
     fn combine(self, other: &FactorKind) -> FactorKind;
+
+    /// Eliminates variables, writing the result into `output`.
+    ///
+    /// Existing output storage may be reused when compatible.
+    /// The previous value of `output` does not affect the result.
+    fn reduce_into(&self, vars: &[VariableId], output: &mut FactorKind) {
+        *output = self.clone().reduce(vars);
+    }
+
+    /// Combines two factors, writing the result into `output`.
+    ///
+    /// Existing output storage may be reused when compatible.
+    /// The previous value of `output` does not affect the result.
+    fn combine_into(&self, other: &FactorKind, output: &mut FactorKind) {
+        *output = self.clone().combine(other);
+    }
 }
 
 /// Semiring-dependent normalization supported by a factor.
@@ -143,6 +159,7 @@ pub trait DiscreteFactor: Factor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::semiring::{LogMaxProduct, LogSumProduct};
 
     struct TestFactor {
         scope: Vec<VariableId>,
@@ -175,5 +192,103 @@ mod tests {
         let factor = TestFactor { scope: vec![] };
 
         assert_eq!(factor.ndim(), 0);
+    }
+
+    fn assert_same_factor(actual: &FactorKind, expected: &FactorKind) {
+        assert_eq!(actual.scope(), expected.scope());
+
+        match (actual, expected) {
+            (FactorKind::Unary(a), FactorKind::Unary(b)) => {
+                assert_eq!(a.data(), b.data());
+            }
+            (FactorKind::Scalar(a), FactorKind::Scalar(b)) => {
+                assert_eq!(a.value(), b.value());
+            }
+            (FactorKind::Dense(a), FactorKind::Dense(b)) => {
+                assert_eq!(a.card(), b.card());
+                assert_eq!(a.data(), b.data());
+            }
+            _ => panic!("factor representations differ"),
+        }
+    }
+
+    fn check_combine_into<S: Semiring>()
+    where
+        FactorKind: FactorOps<S>,
+    {
+        let x = VariableId::new(0);
+        let y = VariableId::new(1);
+
+        let lhs = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, -1.0]));
+        let rhs = FactorKind::Unary(UnaryFactor::new(x, vec![-2.0, -3.0]));
+
+        let expected = <FactorKind as FactorOps<S>>::combine(lhs.clone(), &rhs);
+
+        // Start with an unrelated destination.
+        let mut output = FactorKind::Scalar(ScalarFactor::new(42.0));
+
+        <FactorKind as FactorOps<S>>::combine_into(&lhs, &rhs, &mut output);
+
+        assert_same_factor(&output, &expected);
+
+        // Reuse the destination for a different result scope.
+        let other = FactorKind::Unary(UnaryFactor::new(y, vec![-0.5, -1.5]));
+
+        let expected = <FactorKind as FactorOps<S>>::combine(lhs.clone(), &other);
+
+        <FactorKind as FactorOps<S>>::combine_into(&lhs, &other, &mut output);
+
+        assert_same_factor(&output, &expected);
+
+        // Inputs must remain unchanged.
+        match &lhs {
+            FactorKind::Unary(f) => assert_eq!(f.data(), &[0.0, -1.0]),
+            _ => panic!("expected unary factor"),
+        }
+        match &rhs {
+            FactorKind::Unary(f) => assert_eq!(f.data(), &[-2.0, -3.0]),
+            _ => panic!("expected unary factor"),
+        }
+    }
+
+    fn check_reduce_into<S: Semiring>()
+    where
+        FactorKind: FactorOps<S>,
+    {
+        let x = VariableId::new(0);
+        let lhs = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, -1.0]));
+
+        let mut output = FactorKind::Scalar(ScalarFactor::new(42.0));
+
+        // No elimination: result remains unary.
+        let expected = <FactorKind as FactorOps<S>>::reduce(lhs.clone(), &[]);
+
+        <FactorKind as FactorOps<S>>::reduce_into(&lhs, &[], &mut output);
+
+        assert_same_factor(&output, &expected);
+
+        // Eliminate x: result becomes scalar.
+        let expected = <FactorKind as FactorOps<S>>::reduce(lhs.clone(), &[x]);
+
+        <FactorKind as FactorOps<S>>::reduce_into(&lhs, &[x], &mut output);
+
+        assert_same_factor(&output, &expected);
+
+        // Repeat to ensure the previous output does not matter.
+        <FactorKind as FactorOps<S>>::reduce_into(&lhs, &[x], &mut output);
+
+        assert_same_factor(&output, &expected);
+    }
+
+    #[test]
+    fn destination_operations_log_sum_product() {
+        check_combine_into::<LogSumProduct>();
+        check_reduce_into::<LogSumProduct>();
+    }
+
+    #[test]
+    fn destination_operations_log_max_product() {
+        check_combine_into::<LogMaxProduct>();
+        check_reduce_into::<LogMaxProduct>();
     }
 }

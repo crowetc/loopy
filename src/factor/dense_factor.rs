@@ -203,6 +203,14 @@ impl FactorOps<LogSumProduct> for DenseFactor {
             }
         }
     }
+
+    fn combine_into(&self, other: &FactorKind, output: &mut FactorKind) {
+        match other {
+            FactorKind::Dense(rhs) => self.combine_dense_into(rhs, output),
+            FactorKind::Unary(rhs) => self.combine_unary_into(rhs, output),
+            FactorKind::Scalar(rhs) => self.combine_scalar_into(rhs, output),
+        }
+    }
 }
 
 impl FactorOps<LogMaxProduct> for DenseFactor {
@@ -218,6 +226,14 @@ impl FactorOps<LogMaxProduct> for DenseFactor {
                 let data = self.data.mapv(|x| x + rhs.value());
                 FactorKind::Dense(DenseFactor::new(self.scope, data))
             }
+        }
+    }
+
+    fn combine_into(&self, other: &FactorKind, output: &mut FactorKind) {
+        match other {
+            FactorKind::Dense(rhs) => self.combine_dense_into(rhs, output),
+            FactorKind::Unary(rhs) => self.combine_unary_into(rhs, output),
+            FactorKind::Scalar(rhs) => self.combine_scalar_into(rhs, output),
         }
     }
 }
@@ -693,6 +709,118 @@ mod tests {
 
         assert_eq!(out.scope(), &[v(0), v(1)]);
         assert_eq!(out.data(), &expected);
+    }
+
+    //
+    // Combine_into Tests
+    //
+
+    #[test]
+    fn dense_combine_into_reuses_destination_storage() {
+        let lhs = DenseFactor::new(vec![v(0), v(1)], array![[1.0, 2.0], [3.0, 4.0]].into_dyn());
+
+        let rhs = DenseFactor::new(
+            vec![v(0), v(1)],
+            array![[10.0, 20.0], [30.0, 40.0]].into_dyn(),
+        );
+
+        let mut output = FactorKind::Dense(DenseFactor::new(
+            vec![v(0), v(1)],
+            ArrayD::zeros(IxDyn(&[2, 2])),
+        ));
+
+        let original_ptr = match &output {
+            FactorKind::Dense(factor) => factor.data().as_ptr(),
+            _ => unreachable!(),
+        };
+
+        <DenseFactor as FactorOps<LogSumProduct>>::combine_into(
+            &lhs,
+            &FactorKind::Dense(rhs),
+            &mut output,
+        );
+
+        match output {
+            FactorKind::Dense(result) => {
+                assert_eq!(
+                    result.data(),
+                    &array![[11.0, 22.0], [33.0, 44.0]].into_dyn()
+                );
+
+                assert_eq!(result.data().as_ptr(), original_ptr);
+            }
+            _ => panic!("Expected dense factor"),
+        }
+    }
+
+    #[test]
+    fn dense_unary_combine_into_reuses_destination_storage() {
+        let lhs = DenseFactor::new(vec![v(0), v(1)], array![[1.0, 2.0], [3.0, 4.0]].into_dyn());
+
+        let rhs = UnaryFactor::new(v(1), vec![10.0, 20.0]);
+
+        let mut output = FactorKind::Dense(DenseFactor::new(
+            vec![v(0), v(1)],
+            ArrayD::zeros(IxDyn(&[2, 2])),
+        ));
+
+        let original_ptr = match &output {
+            FactorKind::Dense(factor) => factor.data().as_ptr(),
+            _ => unreachable!(),
+        };
+
+        <DenseFactor as FactorOps<LogSumProduct>>::combine_into(
+            &lhs,
+            &FactorKind::Unary(rhs),
+            &mut output,
+        );
+
+        match output {
+            FactorKind::Dense(result) => {
+                assert_eq!(
+                    result.data(),
+                    &array![[11.0, 22.0], [13.0, 24.0]].into_dyn()
+                );
+
+                assert_eq!(result.data().as_ptr(), original_ptr);
+            }
+            _ => panic!("Expected dense factor"),
+        }
+    }
+
+    #[test]
+    fn dense_scalar_combine_into_reuses_destination_storage() {
+        let lhs = DenseFactor::new(vec![v(0), v(1)], array![[1.0, 2.0], [3.0, 4.0]].into_dyn());
+
+        let rhs = ScalarFactor::new(10.0);
+
+        let mut output = FactorKind::Dense(DenseFactor::new(
+            vec![v(0), v(1)],
+            ArrayD::zeros(IxDyn(&[2, 2])),
+        ));
+
+        let original_ptr = match &output {
+            FactorKind::Dense(factor) => factor.data().as_ptr(),
+            _ => unreachable!(),
+        };
+
+        <DenseFactor as FactorOps<LogSumProduct>>::combine_into(
+            &lhs,
+            &FactorKind::Scalar(rhs),
+            &mut output,
+        );
+
+        match output {
+            FactorKind::Dense(result) => {
+                assert_eq!(
+                    result.data(),
+                    &array![[11.0, 12.0], [13.0, 14.0]].into_dyn()
+                );
+
+                assert_eq!(result.data().as_ptr(), original_ptr);
+            }
+            _ => panic!("Expected dense factor"),
+        }
     }
 
     //
