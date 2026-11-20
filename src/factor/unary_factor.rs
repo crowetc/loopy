@@ -170,6 +170,26 @@ impl UnaryFactor {
             }
         }
     }
+
+    /// Combines this unary factor with a scalar, writing into `output`.
+    ///
+    /// Reuses a compatible unary destination without allocating.
+    fn combine_scalar_into(&self, scalar: &ScalarFactor, output: &mut FactorKind) {
+        match output {
+            FactorKind::Unary(result) if result.var == self.var && result.card == self.card => {
+                for (dst, &src) in result.data.iter_mut().zip(&self.data) {
+                    *dst = src + scalar.value();
+                }
+            }
+
+            _ => {
+                *output = FactorKind::Unary(UnaryFactor::new(
+                    self.var,
+                    self.data.iter().map(|x| x + scalar.value()).collect(),
+                ));
+            }
+        }
+    }
 }
 
 impl Factor for UnaryFactor {
@@ -256,12 +276,9 @@ where
 
     fn combine_into(&self, other: &FactorKind, output: &mut FactorKind) {
         match other {
-            FactorKind::Unary(rhs) => {
-                self.combine_unary_into(rhs, output);
-            }
-            _ => {
-                *output = <Self as FactorOps<LogSumProduct>>::combine(self.clone(), other);
-            }
+            FactorKind::Unary(rhs) => self.combine_unary_into(rhs, output),
+            FactorKind::Scalar(rhs) => self.combine_scalar_into(rhs, output),
+            FactorKind::Dense(rhs) => rhs.combine_unary_into(self, output),
         }
     }
 }
@@ -318,12 +335,9 @@ where
 
     fn combine_into(&self, other: &FactorKind, output: &mut FactorKind) {
         match other {
-            FactorKind::Unary(rhs) => {
-                self.combine_unary_into(rhs, output);
-            }
-            _ => {
-                *output = <Self as FactorOps<LogMaxProduct>>::combine(self.clone(), other);
-            }
+            FactorKind::Unary(rhs) => self.combine_unary_into(rhs, output),
+            FactorKind::Scalar(rhs) => self.combine_scalar_into(rhs, output),
+            FactorKind::Dense(rhs) => rhs.combine_unary_into(self, output),
         }
     }
 }
@@ -655,6 +669,86 @@ mod tests {
                 assert_eq!(factor.data().as_ptr(), original_ptr);
             }
             _ => panic!("expected unary result"),
+        }
+    }
+
+    #[test]
+    fn unary_combine_scalar_into_reuses_destination_storage() {
+        let x = v(0);
+
+        let lhs = UnaryFactor::new(x, vec![1.0, 2.0]);
+        let rhs = FactorKind::Scalar(ScalarFactor::new(10.0));
+
+        let mut output = FactorKind::Unary(UnaryFactor::new(x, vec![0.0, 0.0]));
+
+        let original_ptr = match &output {
+            FactorKind::Unary(f) => f.data().as_ptr(),
+            _ => unreachable!(),
+        };
+
+        <UnaryFactor as FactorOps<LogSumProduct>>::combine_into(&lhs, &rhs, &mut output);
+
+        match &output {
+            FactorKind::Unary(f) => {
+                assert_eq!(f.data(), &[11.0, 12.0]);
+                assert_eq!(f.data().as_ptr(), original_ptr);
+            }
+            _ => panic!("expected unary factor"),
+        }
+    }
+
+    #[test]
+    fn unary_combine_dense_into_reuses_destination_storage() {
+        let x = v(0);
+        let y = v(1);
+
+        let lhs = UnaryFactor::new(y, vec![10.0, 20.0]);
+
+        let rhs = FactorKind::Dense(DenseFactor::new(
+            vec![x, y],
+            array![[1.0, 2.0], [3.0, 4.0]].into_dyn(),
+        ));
+
+        let mut output = FactorKind::Dense(DenseFactor::new(
+            vec![x, y],
+            array![[0.0, 0.0], [0.0, 0.0]].into_dyn(),
+        ));
+
+        let original_ptr = match &output {
+            FactorKind::Dense(f) => f.data().as_ptr(),
+            _ => unreachable!(),
+        };
+
+        <UnaryFactor as FactorOps<LogSumProduct>>::combine_into(&lhs, &rhs, &mut output);
+
+        match &output {
+            FactorKind::Dense(f) => {
+                assert_eq!(f.data(), &array![[11.0, 22.0], [13.0, 24.0]].into_dyn());
+                assert_eq!(f.data().as_ptr(), original_ptr);
+            }
+            _ => panic!("expected dense factor"),
+        }
+    }
+
+    #[test]
+    fn unary_combine_into_replaces_incompatible_destination() {
+        let x = v(0);
+        let y = v(1);
+
+        let lhs = UnaryFactor::new(x, vec![1.0, 2.0]);
+        let rhs = FactorKind::Unary(UnaryFactor::new(x, vec![10.0, 20.0]));
+
+        // Wrong variable: destination cannot be reused.
+        let mut output = FactorKind::Unary(UnaryFactor::new(y, vec![0.0, 0.0]));
+
+        <UnaryFactor as FactorOps<LogSumProduct>>::combine_into(&lhs, &rhs, &mut output);
+
+        match &output {
+            FactorKind::Unary(f) => {
+                assert_eq!(f.var(), x);
+                assert_eq!(f.data(), &[11.0, 22.0]);
+            }
+            _ => panic!("expected unary factor"),
         }
     }
 
