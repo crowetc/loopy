@@ -179,6 +179,8 @@ fn bench_dense_x_unary(c: &mut Criterion) {
 }
 
 fn bench_dense_x_unary_into(c: &mut Criterion) {
+    use ndarray::ShapeBuilder;
+
     let mut group = c.benchmark_group("combine_dense_x_unary_matching");
 
     for card in [2, 10, 100] {
@@ -189,46 +191,53 @@ fn bench_dense_x_unary_into(c: &mut Criterion) {
             "last_axis_contiguous",
             "first_axis_contiguous",
             "last_axis_noncontiguous",
+            "matching_nonstandard_layout",
         ] {
             let (lhs, unary_var) = match layout {
                 "last_axis_contiguous" => (dense_factor(scope.clone(), &shape), VariableId::new(1)),
-
                 "first_axis_contiguous" => {
                     (dense_factor(scope.clone(), &shape), VariableId::new(0))
                 }
-
-                "last_axis_noncontiguous" => {
-                    // DenseFactor::new canonicalizes the scope,
-                    // producing a transposed memory layout.
+                "last_axis_noncontiguous" | "matching_nonstandard_layout" => {
                     let lhs = dense_factor(vec![VariableId::new(1), VariableId::new(0)], &shape);
-
                     assert!(!lhs.data().is_standard_layout());
-
                     (lhs, VariableId::new(1))
                 }
-
                 _ => unreachable!(),
             };
 
             let rhs = FactorKind::Unary(unary_factor(unary_var, card));
-
             let case = format!("{layout}/{card}");
 
-            // Existing API: clone the dense input, then combine.
             group.bench_with_input(BenchmarkId::new("combine", &case), &card, |b, _| {
                 b.iter(|| {
                     let out = <DenseFactor as FactorOps<LogSumProduct>>::combine(
                         black_box(lhs.clone()),
                         black_box(&rhs),
                     );
-
                     consume_result(out);
                 });
             });
 
-            // New API: reuse a compatible dense destination.
             group.bench_with_input(BenchmarkId::new("combine_into", &case), &card, |b, _| {
-                let mut output = FactorKind::Dense(dense_factor(scope.clone(), &shape));
+                let output_data = if layout == "matching_nonstandard_layout" {
+                    ArrayD::<f64>::zeros(IxDyn(&shape).f())
+                } else {
+                    ArrayD::<f64>::zeros(IxDyn(&shape))
+                };
+
+                let mut output = FactorKind::Dense(DenseFactor::new(scope.clone(), output_data));
+
+                // Verify the intended layout before benchmarking.
+                if layout == "matching_nonstandard_layout" {
+                    assert_eq!(
+                        lhs.data().strides(),
+                        match &output {
+                            FactorKind::Dense(f) => f.data().strides(),
+                            _ => unreachable!(),
+                        }
+                    );
+                }
 
                 b.iter(|| {
                     <DenseFactor as FactorOps<LogSumProduct>>::combine_into(
@@ -236,7 +245,6 @@ fn bench_dense_x_unary_into(c: &mut Criterion) {
                         black_box(&rhs),
                         black_box(&mut output),
                     );
-
                     black_box(&output);
                 });
             });

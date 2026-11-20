@@ -201,10 +201,6 @@ impl DenseFactor {
 
         const UNARY_AXIS: usize = 0;
 
-        //
-        // Case 1: unary variable is shared with the dense factor.
-        //
-
         if alignment.rhs_common.len() == 1 {
             let dense_common_axis = alignment.lhs_common[0];
 
@@ -214,42 +210,59 @@ impl DenseFactor {
                 "Cardinality mismatch in factors"
             );
 
-            // Fast path: unary variable is the last axis and
-            // dense data is contiguous in standard layout.
-            if dense_common_axis == self.data.ndim() - 1
-                && let Some(data) = self.data.as_slice_mut()
-            {
-                let card = unary.card()[UNARY_AXIS];
+            let card = unary.card()[UNARY_AXIS];
+            let unary_data = unary.data();
 
-                for row in data.chunks_exact_mut(card) {
-                    for (value, &u) in row.iter_mut().zip(unary.data().iter()) {
-                        *value += u;
+            // Fast path: contiguous physical storage, regardless of
+            // whether the array has standard or nonstandard strides.
+            //
+            // Singleton dimensions are excluded because their strides
+            // need not correspond to physical block sizes.
+            if self.card().iter().all(|&card| card > 1) {
+                let inner = self.data.strides()[dense_common_axis] as usize;
+
+                if let Some(data) = self.data.as_slice_memory_order_mut() {
+                    if inner == 1 {
+                        // Unary axis is physically innermost.
+                        for row in data.chunks_exact_mut(card) {
+                            for (value, &u) in row.iter_mut().zip(unary_data.iter()) {
+                                *value += u;
+                            }
+                        }
+                    } else {
+                        // Unary axis has a larger physical stride.
+                        let block_size = card * inner;
+
+                        for block in data.chunks_exact_mut(block_size) {
+                            for (state, &u) in unary_data.iter().enumerate() {
+                                let start = state * inner;
+                                let end = start + inner;
+
+                                for value in &mut block[start..end] {
+                                    *value += u;
+                                }
+                            }
+                        }
                     }
-                }
 
-                return self;
+                    return self;
+                }
             }
 
-            // General path: arbitrary axes and memory layouts.
+            // General path: arbitrary memory layouts.
             for mut lane in self.data.lanes_mut(ndarray::Axis(dense_common_axis)) {
-                for (value, &u) in lane.iter_mut().zip(unary.data().iter()) {
+                for (value, &u) in lane.iter_mut().zip(unary_data.iter()) {
                     *value += u;
                 }
             }
 
             self
         } else {
-            //
-            // Case 2: unary variable is disjoint from the dense factor.
-            //
-
             debug_assert_eq!(alignment.rhs_only.len(), 1);
 
-            // Dense: [dense-only...]
             let mut lhs_order = Vec::with_capacity(self.scope.len());
             lhs_order.extend_from_slice(&alignment.lhs_only);
 
-            // Output: [unary-only, dense-only...]
             let mut out_order = Vec::with_capacity(alignment.union_vars.len());
 
             out_order.extend(
@@ -291,6 +304,14 @@ impl DenseFactor {
         }
     }
 
+    /// Combines a dense factor with a unary factor, writing into `output`.
+    ///
+    /// Reuses the destination allocation when its scope and cardinalities
+    /// match the dense factor. For contiguous nonstandard source layouts, a
+    /// standard-layout destination may have its strides reinterpreted to
+    /// match the source without reallocating. This changes physical layout,
+    /// not the logical shape or values. Incompatible destinations and
+    /// disjoint scopes are replaced with a newly computed factor.
     pub(crate) fn combine_unary_into(&self, unary: &UnaryFactor, output: &mut FactorKind) {
         if let Ok(axis) = self.scope.binary_search(&unary.scope()[0]) {
             assert_eq!(
@@ -303,17 +324,54 @@ impl DenseFactor {
                 && result.scope == self.scope
                 && result.card() == self.card()
             {
-                // Fast path: standard row-major layouts.
-                if self.data.is_standard_layout()
-                    && result.data.is_standard_layout()
-                    && let (Some(lhs), Some(out)) =
-                        (self.data.as_slice(), result.data.as_slice_mut())
+                // Reinterpret a standard-layout destination to match the
+                // source's physical memory order.
+                //
+                // The destination will be completely overwritten, so its
+                // previous physical layout does not need to be preserved.
+                if result.data.is_standard_layout()
+                    && !self.data.is_standard_layout()
+                    && self.data.as_slice_memory_order().is_some()
+                    && self.data.strides().iter().all(|&stride| stride > 0)
+                    && self.card().iter().all(|&card| card > 1)
                 {
-                    let inner: usize = self.card()[axis + 1..].iter().product();
+                    use ndarray::ShapeBuilder;
+
+                    let shape = self.data.shape().to_vec();
+                    let strides = self
+                        .data
+                        .strides()
+                        .iter()
+                        .map(|&stride| stride as usize)
+                        .collect::<Vec<_>>();
+
+                    let old_data = std::mem::take(&mut result.data);
+                    let (values, offset) = old_data.into_raw_vec_and_offset();
+
+                    debug_assert_eq!(offset, Some(0));
+
+                    result.data =
+                        ArrayD::from_shape_vec(IxDyn(&shape).strides(IxDyn(&strides)), values)
+                            .expect("source strides must describe contiguous storage");
+                }
+
+                // Fast path: matching contiguous physical layouts.
+                //
+                // This handles both standard row-major arrays and
+                // nonstandard contiguous arrays.
+                if self.data.strides() == result.data.strides()
+                    && self.card().iter().all(|&card| card > 1)
+                    && let (Some(lhs), Some(out)) = (
+                        self.data.as_slice_memory_order(),
+                        result.data.as_slice_memory_order_mut(),
+                    )
+                {
                     let card = unary.card()[0];
+                    let inner = self.data.strides()[axis] as usize;
                     let unary_data = unary.data();
 
                     if inner == 1 {
+                        // Unary axis is physically innermost.
                         for (out_row, lhs_row) in
                             out.chunks_exact_mut(card).zip(lhs.chunks_exact(card))
                         {
@@ -326,6 +384,7 @@ impl DenseFactor {
                             }
                         }
                     } else {
+                        // Unary axis has a larger physical stride.
                         let block_size = card * inner;
 
                         for (lhs_block, out_block) in lhs
@@ -349,54 +408,7 @@ impl DenseFactor {
                     return;
                 }
 
-                // Fast path: matching contiguous physical layouts,
-                // including nonstandard axis orders.
-                if self.data.strides() == result.data.strides()
-                    && let (Some(lhs), Some(out)) = (
-                        self.data.as_slice_memory_order(),
-                        result.data.as_slice_memory_order_mut(),
-                    )
-                {
-                    let card = unary.card()[0];
-                    let inner = self.data.strides()[axis] as usize;
-                    let block_size = card * inner;
-                    let unary_data = unary.data();
-
-                    if inner == 1 {
-                        for (out_row, lhs_row) in
-                            out.chunks_exact_mut(card).zip(lhs.chunks_exact(card))
-                        {
-                            for ((dst, &src), &u) in out_row
-                                .iter_mut()
-                                .zip(lhs_row.iter())
-                                .zip(unary_data.iter())
-                            {
-                                *dst = src + u;
-                            }
-                        }
-                    } else {
-                        for (lhs_block, out_block) in lhs
-                            .chunks_exact(block_size)
-                            .zip(out.chunks_exact_mut(block_size))
-                        {
-                            for (state, &u) in unary_data.iter().enumerate() {
-                                let start = state * inner;
-                                let end = start + inner;
-
-                                for (&src, dst) in lhs_block[start..end]
-                                    .iter()
-                                    .zip(out_block[start..end].iter_mut())
-                                {
-                                    *dst = src + u;
-                                }
-                            }
-                        }
-                    }
-
-                    return;
-                }
-
-                // General fallback: arbitrary or mismatched layouts.
+                // General path: arbitrary or mismatched layouts.
                 let axis = ndarray::Axis(axis);
 
                 for (mut out_lane, lhs_lane) in result
@@ -575,5 +587,111 @@ fn build_alignment(lhs_scope: &[VariableId], rhs_scope: &[VariableId]) -> Alignm
         rhs_common,
         lhs_to_out,
         rhs_to_out,
+    }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::variable::VariableId;
+
+    #[test]
+    fn combine_unary_into_reuses_destination_with_nonstandard_layout() {
+        use ndarray::{ArrayD, IxDyn, ShapeBuilder};
+
+        let scope = vec![VariableId::new(0), VariableId::new(1)];
+
+        // Physical strides [1, 3], rather than standard [4, 1].
+        let data = ArrayD::from_shape_vec(IxDyn(&[3, 4]).f(), (0..12).map(|x| x as f64).collect())
+            .unwrap();
+
+        let dense = DenseFactor::new(scope.clone(), data);
+
+        // Adjust the constructor arguments if your UnaryFactor::new
+        // takes a different shape.
+        let unary = UnaryFactor::new(scope[1], vec![10.0, 20.0, 30.0, 40.0]);
+
+        let mut output = FactorKind::Dense(DenseFactor::new(scope, ArrayD::zeros(IxDyn(&[3, 4]))));
+
+        let original_ptr = match &output {
+            FactorKind::Dense(factor) => factor.data.as_ptr(),
+            _ => unreachable!(),
+        };
+
+        dense.combine_unary_into(&unary, &mut output);
+
+        let FactorKind::Dense(result) = &output else {
+            panic!("expected dense output");
+        };
+
+        assert_eq!(result.data.strides(), dense.data.strides());
+        assert_eq!(result.data.as_ptr(), original_ptr);
+
+        for i in 0..3 {
+            for j in 0..4 {
+                assert_eq!(
+                    result.data[IxDyn(&[i, j])],
+                    dense.data[IxDyn(&[i, j])] + unary.data()[j],
+                );
+            }
+        }
+
+        // The second call should reuse the already-matching layout.
+        dense.combine_unary_into(&unary, &mut output);
+
+        let FactorKind::Dense(result) = &output else {
+            panic!("expected dense output");
+        };
+
+        assert_eq!(result.data.as_ptr(), original_ptr);
+
+        for i in 0..3 {
+            for j in 0..4 {
+                assert_eq!(
+                    result.data[IxDyn(&[i, j])],
+                    dense.data[IxDyn(&[i, j])] + unary.data()[j],
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn combine_unary_handles_singleton_dimensions() {
+        use ndarray::{ArrayD, IxDyn};
+
+        let scope = vec![VariableId::new(0), VariableId::new(1)];
+
+        let dense = DenseFactor::new(
+            scope.clone(),
+            ArrayD::from_shape_vec(IxDyn(&[1, 3]), vec![1.0, 2.0, 3.0]).unwrap(),
+        );
+
+        let unary = UnaryFactor::new(scope[1], vec![10.0, 20.0, 30.0]);
+
+        let expected = [11.0, 22.0, 33.0];
+
+        // Consuming combination.
+        let combined = dense.clone().combine_unary(&unary);
+
+        for (actual, expected) in combined.data.iter().zip(expected) {
+            assert_eq!(*actual, expected);
+        }
+
+        // Combination into an existing destination.
+        let mut output = FactorKind::Dense(DenseFactor::new(scope, ArrayD::zeros(IxDyn(&[1, 3]))));
+
+        dense.combine_unary_into(&unary, &mut output);
+
+        let FactorKind::Dense(result) = &output else {
+            panic!("expected dense output");
+        };
+
+        for (actual, expected) in result.data.iter().zip(expected) {
+            assert_eq!(*actual, expected);
+        }
     }
 }
