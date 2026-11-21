@@ -211,6 +211,80 @@ fn bench_unary_reduce_out_of_scope(c: &mut Criterion) {
     });
 }
 
+fn bench_dense_reduce_into(c: &mut Criterion) {
+    let x = VariableId::new(0);
+    let y = VariableId::new(1);
+    let z = VariableId::new(2);
+
+    // Dense -> Unary: binary factor.
+    let binary = make_dense(vec![x, y], &[2, 2]);
+
+    let mut unary_sum = FactorKind::Unary(UnaryFactor::new(x, vec![0.0; 2]));
+
+    c.bench_function("dense_reduce_sum_single_axis_binary_into", |b| {
+        b.iter(|| {
+            <DenseFactor as FactorOps<LogSumProduct>>::reduce_into(
+                black_box(&binary),
+                black_box(&[y]),
+                black_box(&mut unary_sum),
+            );
+
+            black_box(&unary_sum);
+        });
+    });
+
+    let mut unary_max = FactorKind::Unary(UnaryFactor::new(x, vec![0.0; 2]));
+
+    c.bench_function("dense_reduce_max_single_axis_binary_into", |b| {
+        b.iter(|| {
+            <DenseFactor as FactorOps<LogMaxProduct>>::reduce_into(
+                black_box(&binary),
+                black_box(&[y]),
+                black_box(&mut unary_max),
+            );
+
+            black_box(&unary_max);
+        });
+    });
+
+    // Dense -> Dense: eliminate one axis of a 20x20x20 factor.
+    let dense = make_dense(vec![x, y, z], &[20, 20, 20]);
+
+    let mut dense_sum = FactorKind::Dense(DenseFactor::new(
+        vec![y, z],
+        ArrayD::zeros(IxDyn(&[20, 20])),
+    ));
+
+    c.bench_function("dense_reduce_sum_single_axis_into", |b| {
+        b.iter(|| {
+            <DenseFactor as FactorOps<LogSumProduct>>::reduce_into(
+                black_box(&dense),
+                black_box(&[x]),
+                black_box(&mut dense_sum),
+            );
+
+            black_box(&dense_sum);
+        });
+    });
+
+    let mut dense_max = FactorKind::Dense(DenseFactor::new(
+        vec![y, z],
+        ArrayD::zeros(IxDyn(&[20, 20])),
+    ));
+
+    c.bench_function("dense_reduce_max_single_axis_into", |b| {
+        b.iter(|| {
+            <DenseFactor as FactorOps<LogMaxProduct>>::reduce_into(
+                black_box(&dense),
+                black_box(&[x]),
+                black_box(&mut dense_max),
+            );
+
+            black_box(&dense_max);
+        });
+    });
+}
+
 criterion_group!(
     benches,
     bench_dense_reduce_single_axis,
@@ -219,6 +293,7 @@ criterion_group!(
     bench_dense_reduce_out_of_scope,
     bench_unary_reduce,
     bench_unary_reduce_out_of_scope,
+    bench_dense_reduce_into,
 );
 
 criterion_main!(benches);

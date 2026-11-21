@@ -204,6 +204,10 @@ impl FactorOps<LogSumProduct> for DenseFactor {
         }
     }
 
+    fn reduce_into(&self, vars: &[VariableId], output: &mut FactorKind) {
+        self.reduce_sum_into(vars, output);
+    }
+
     fn combine_into(&self, other: &FactorKind, output: &mut FactorKind) {
         match other {
             FactorKind::Dense(rhs) => self.combine_dense_into(rhs, output),
@@ -227,6 +231,10 @@ impl FactorOps<LogMaxProduct> for DenseFactor {
                 FactorKind::Dense(DenseFactor::new(self.scope, data))
             }
         }
+    }
+
+    fn reduce_into(&self, vars: &[VariableId], output: &mut FactorKind) {
+        self.reduce_max_into(vars, output);
     }
 
     fn combine_into(&self, other: &FactorKind, output: &mut FactorKind) {
@@ -709,6 +717,161 @@ mod tests {
 
         assert_eq!(out.scope(), &[v(0), v(1)]);
         assert_eq!(out.data(), &expected);
+    }
+
+    //
+    // Reduce_into Tests
+    //
+
+    #[test]
+    fn dense_reduce_sum_into_reuses_unary_storage() {
+        let x = v(0);
+        let y = v(1);
+
+        let factor = DenseFactor::new(
+            vec![x, y],
+            array![[1.0_f64, 2.0], [3.0, 4.0]].mapv(f64::ln).into_dyn(),
+        );
+
+        let mut output = FactorKind::Unary(UnaryFactor::new(y, vec![0.0, 0.0]));
+
+        let original_ptr = match &output {
+            FactorKind::Unary(f) => f.data().as_ptr(),
+            _ => unreachable!(),
+        };
+
+        <DenseFactor as FactorOps<LogSumProduct>>::reduce_into(&factor, &[x], &mut output);
+
+        match &output {
+            FactorKind::Unary(result) => {
+                assert_eq!(result.scope(), &[y]);
+                assert!((result.data()[0] - 4.0_f64.ln()).abs() < 1e-12);
+                assert!((result.data()[1] - 6.0_f64.ln()).abs() < 1e-12);
+                assert_eq!(result.data().as_ptr(), original_ptr);
+            }
+            _ => panic!("Expected unary factor"),
+        }
+
+        // The input must remain unchanged.
+        assert_eq!(
+            factor.data(),
+            &array![[1.0_f64, 2.0], [3.0, 4.0]].mapv(f64::ln).into_dyn()
+        );
+    }
+
+    #[test]
+    fn dense_reduce_max_into_reuses_unary_storage() {
+        let x = v(0);
+        let y = v(1);
+
+        let factor = DenseFactor::new(
+            vec![x, y],
+            array![[1.0_f64, 2.0], [3.0, 4.0]].mapv(f64::ln).into_dyn(),
+        );
+
+        let mut output = FactorKind::Unary(UnaryFactor::new(y, vec![0.0, 0.0]));
+
+        let original_ptr = match &output {
+            FactorKind::Unary(f) => f.data().as_ptr(),
+            _ => unreachable!(),
+        };
+
+        <DenseFactor as FactorOps<LogMaxProduct>>::reduce_into(&factor, &[x], &mut output);
+
+        match &output {
+            FactorKind::Unary(result) => {
+                assert_eq!(result.scope(), &[y]);
+                assert!((result.data()[0] - 3.0_f64.ln()).abs() < 1e-12);
+                assert!((result.data()[1] - 4.0_f64.ln()).abs() < 1e-12);
+                assert_eq!(result.data().as_ptr(), original_ptr);
+            }
+            _ => panic!("Expected unary factor"),
+        }
+    }
+
+    #[test]
+    fn dense_reduce_into_reuses_dense_storage() {
+        let x = v(0);
+        let y = v(1);
+        let z = v(2);
+
+        let factor = DenseFactor::new(
+            vec![x, y, z],
+            array![[[1.0_f64, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]
+                .mapv(f64::ln)
+                .into_dyn(),
+        );
+
+        let mut output =
+            FactorKind::Dense(DenseFactor::new(vec![x, y], ArrayD::zeros(IxDyn(&[2, 2]))));
+
+        let original_ptr = match &output {
+            FactorKind::Dense(f) => f.data().as_ptr(),
+            _ => unreachable!(),
+        };
+
+        <DenseFactor as FactorOps<LogSumProduct>>::reduce_into(&factor, &[z], &mut output);
+
+        match &output {
+            FactorKind::Dense(result) => {
+                let expected = array![[3.0_f64, 7.0], [11.0, 15.0]]
+                    .mapv(f64::ln)
+                    .into_dyn();
+
+                assert_eq!(result.scope(), &[x, y]);
+                assert!(arrays_approx_equal(result.data(), &expected, 1e-12));
+                assert_eq!(result.data().as_ptr(), original_ptr);
+            }
+            _ => panic!("Expected dense factor"),
+        }
+    }
+
+    #[test]
+    fn dense_reduce_into_replaces_incompatible_destination() {
+        let x = v(0);
+        let y = v(1);
+        let z = v(2);
+
+        let factor = DenseFactor::new(
+            vec![x, y],
+            array![[1.0_f64, 2.0], [3.0, 4.0]].mapv(f64::ln).into_dyn(),
+        );
+
+        // Wrong output variable.
+        let mut output = FactorKind::Unary(UnaryFactor::new(z, vec![0.0, 0.0]));
+
+        <DenseFactor as FactorOps<LogSumProduct>>::reduce_into(&factor, &[x], &mut output);
+
+        match &output {
+            FactorKind::Unary(result) => {
+                assert_eq!(result.scope(), &[y]);
+                assert!((result.data()[0] - 4.0_f64.ln()).abs() < 1e-12);
+                assert!((result.data()[1] - 6.0_f64.ln()).abs() < 1e-12);
+            }
+            _ => panic!("Expected unary factor"),
+        }
+    }
+
+    #[test]
+    fn dense_reduce_into_scalar() {
+        let x = v(0);
+        let y = v(1);
+
+        let factor = DenseFactor::new(
+            vec![x, y],
+            array![[1.0_f64, 2.0], [3.0, 4.0]].mapv(f64::ln).into_dyn(),
+        );
+
+        let mut output = FactorKind::Scalar(ScalarFactor::new(0.0));
+
+        <DenseFactor as FactorOps<LogSumProduct>>::reduce_into(&factor, &[x, y], &mut output);
+
+        match output {
+            FactorKind::Scalar(result) => {
+                assert!((result.value() - 10.0_f64.ln()).abs() < 1e-12);
+            }
+            _ => panic!("Expected scalar factor"),
+        }
     }
 
     //

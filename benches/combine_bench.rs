@@ -290,6 +290,44 @@ fn bench_unary_x_unary(c: &mut Criterion) {
     });
 }
 
+fn bench_unary_x_unary_into(c: &mut Criterion) {
+    let mut group = c.benchmark_group("combine_unary_x_unary_matching");
+
+    for card in [2, 10, 100, 1000] {
+        let var = VariableId::new(0);
+
+        let lhs = unary_factor(var, card);
+        let rhs = FactorKind::Unary(unary_factor(var, card));
+
+        group.bench_with_input(BenchmarkId::new("combine", card), &card, |b, _| {
+            b.iter(|| {
+                let out = <UnaryFactor as FactorOps<LogSumProduct>>::combine(
+                    black_box(lhs.clone()),
+                    black_box(&rhs),
+                );
+
+                consume_result(out);
+            });
+        });
+
+        group.bench_with_input(BenchmarkId::new("combine_into", card), &card, |b, _| {
+            let mut output = FactorKind::Unary(UnaryFactor::new(var, vec![0.0; card]));
+
+            b.iter(|| {
+                <UnaryFactor as FactorOps<LogSumProduct>>::combine_into(
+                    black_box(&lhs),
+                    black_box(&rhs),
+                    black_box(&mut output),
+                );
+
+                black_box(&output);
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_dense_x_dense,
@@ -297,6 +335,7 @@ criterion_group!(
     bench_dense_x_unary,
     bench_dense_x_unary_into,
     bench_unary_x_unary,
+    bench_unary_x_unary_into,
 );
 
 criterion_main!(benches);

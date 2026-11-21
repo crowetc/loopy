@@ -63,6 +63,10 @@ impl UnaryFactor {
         &self.data
     }
 
+    pub(crate) fn data_mut(&mut self) -> &mut [f64] {
+        &mut self.data
+    }
+
     /// Returns the variable identifier.
     pub fn var(&self) -> VariableId {
         self.var
