@@ -120,6 +120,10 @@ impl MessageStore {
         }
     }
 
+    pub(crate) fn prepare_buffer(&self, buffer: &mut Vec<Option<Message>>) {
+        buffer.resize_with(self.messages.len(), || None);
+    }
+
     //
     // Messages
     //
@@ -144,6 +148,16 @@ impl MessageStore {
     /// Returns the number of message slots in the store.
     pub(crate) fn num_messages(&self) -> usize {
         self.messages.len()
+    }
+
+    pub(crate) fn swap_messages(&mut self, other: &mut Vec<Option<Message>>) {
+        assert_eq!(
+            self.messages.len(),
+            other.len(),
+            "message buffer size mismatch"
+        );
+
+        std::mem::swap(&mut self.messages, other);
     }
 
     //

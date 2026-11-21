@@ -10,7 +10,7 @@ use crate::message::{Message, MessageId};
 use crate::semiring::Semiring;
 
 use super::Schedule;
-use super::updates::compute_message;
+use super::updates::compute_message_into;
 
 /// A synchronous belief-propagation schedule.
 ///
@@ -18,7 +18,7 @@ use super::updates::compute_message;
 /// so no update is visible to another message computed in the same iteration.
 #[derive(Clone, Debug, Default)]
 pub struct Synchronous {
-    updates: Vec<(MessageId, Message)>,
+    next: Vec<Option<Message>>,
 }
 
 impl Synchronous {
@@ -35,19 +35,26 @@ where
     fn step(&mut self, state: &mut BeliefState<S>) -> f64 {
         let mut max_residual: f64 = 0.0;
 
-        self.updates.clear();
+        state.messages().prepare_buffer(&mut self.next);
 
         for index in 0..state.messages().num_messages() {
             let id = MessageId::new(index);
 
-            let Some(message) = compute_message::<S>(state, id) else {
+            compute_message_into::<S>(state, id, &mut self.next[index]);
+
+            // Normalize the newly computed message.
+            if let Some(message) = self.next[index].take() {
+                let factor = <FactorKind as FactorNormalize<S>>::normalize(message.into_factor());
+
+                self.next[index] = Some(
+                    Message::try_from(factor)
+                        .expect("normalization must preserve message dimensionality"),
+                );
+            }
+
+            let Some(message) = self.next[index].as_ref() else {
                 continue;
             };
-
-            let factor = <FactorKind as FactorNormalize<S>>::normalize(message.into_factor());
-
-            let message = Message::try_from(factor)
-                .expect("normalization must preserve message dimensionality");
 
             let residual = match state.messages().get(id) {
                 Some(previous) => message.factor().distance(previous.factor()),
@@ -55,13 +62,9 @@ where
             };
 
             max_residual = max_residual.max(residual);
-
-            self.updates.push((id, message));
         }
 
-        for (id, message) in self.updates.drain(..) {
-            state.messages_mut().set(id, message);
-        }
+        state.messages_mut().swap_messages(&mut self.next);
 
         max_residual
     }
