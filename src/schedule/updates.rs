@@ -1,8 +1,23 @@
+//! Message-update computations for belief propagation.
+//!
+//! Computes variable-to-factor and factor-to-variable messages using the
+//! current belief state. Results are written to a separate destination,
+//! leaving the source messages unchanged.
+//!
+//! Existing destination storage is reused where supported by the factor
+//! operations.
+
 use crate::belief_state::BeliefState;
 use crate::factor::{Factor, FactorKind, FactorOps};
 use crate::message::{Endpoint, Message, MessageId};
 use crate::semiring::Semiring;
 
+/// Computes the message identified by `message_id` into `output`.
+///
+/// Dispatches to the appropriate update based on the direction of the edge.
+/// The destination may contain a previous message whose storage can be reused.
+///
+/// An absent message is represented by `None`.
 pub(crate) fn compute_message_into<S>(
     state: &BeliefState<S>,
     message_id: MessageId,
@@ -24,6 +39,7 @@ pub(crate) fn compute_message_into<S>(
     }
 }
 
+/// Combines incoming factor-to-variable messages, excluding the destination factor.
 fn variable_to_factor_into<S>(
     state: &BeliefState<S>,
     message_id: MessageId,
@@ -57,8 +73,6 @@ fn variable_to_factor_into<S>(
         return;
     };
 
-    // Accumulate using consuming combine, which can reuse
-    // the accumulator's allocation.
     let mut result = first.factor().clone();
 
     for message in incoming {
@@ -70,11 +84,6 @@ fn variable_to_factor_into<S>(
 
     match output {
         Some(destination) => {
-            // Preserve the destination's allocation when the
-            // factor implementation supports it.
-            // This generic operation copies through combine_into
-            // only if an identity is available, so for now
-            // replace the owned factor.
             *destination.factor_mut() = result;
         }
         None => {
@@ -84,6 +93,7 @@ fn variable_to_factor_into<S>(
     }
 }
 
+/// Combines the factor potential with incoming messages, then reduces to the destination variable.
 fn factor_to_variable_into<S>(
     state: &BeliefState<S>,
     message_id: MessageId,
@@ -118,6 +128,7 @@ fn factor_to_variable_into<S>(
         result = <FactorKind as FactorOps<S>>::combine(result, message.factor());
     }
 
+    // Eliminate every variable except the message destination.
     let reduce_vars: Vec<_> = result
         .scope()
         .iter()
@@ -237,8 +248,6 @@ mod tests {
         let mut result = None;
 
         variable_to_factor_into::<LogSumProduct>(&state, message_id, &mut result);
-
-        assert!(result.is_none());
 
         assert!(result.is_none());
     }

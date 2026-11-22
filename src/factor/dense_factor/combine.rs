@@ -306,12 +306,11 @@ impl DenseFactor {
 
     /// Combines a dense factor with a unary factor, writing into `output`.
     ///
-    /// Reuses the destination allocation when its scope and cardinalities
-    /// match the dense factor. For contiguous nonstandard source layouts, a
-    /// standard-layout destination may have its strides reinterpreted to
-    /// match the source without reallocating. This changes physical layout,
-    /// not the logical shape or values. Incompatible destinations and
-    /// disjoint scopes are replaced with a newly computed factor.
+    /// Reuses compatible destination storage when the unary variable belongs
+    /// to the dense factor's scope. The destination's physical layout may be
+    /// adjusted to match the source without reallocating.
+    ///
+    /// Otherwise, replaces the destination with a newly computed factor.
     pub(crate) fn combine_unary_into(&self, unary: &UnaryFactor, output: &mut FactorKind) {
         if let Ok(axis) = self.scope.binary_search(&unary.scope()[0]) {
             assert_eq!(
@@ -605,14 +604,12 @@ mod tests {
 
         let scope = vec![VariableId::new(0), VariableId::new(1)];
 
-        // Physical strides [1, 3], rather than standard [4, 1].
+        // Fortran-order strides [1, 3], rather than row-major [4, 1].
         let data = ArrayD::from_shape_vec(IxDyn(&[3, 4]).f(), (0..12).map(|x| x as f64).collect())
             .unwrap();
 
         let dense = DenseFactor::new(scope.clone(), data);
 
-        // Adjust the constructor arguments if your UnaryFactor::new
-        // takes a different shape.
         let unary = UnaryFactor::new(scope[1], vec![10.0, 20.0, 30.0, 40.0]);
 
         let mut output = FactorKind::Dense(DenseFactor::new(scope, ArrayD::zeros(IxDyn(&[3, 4]))));

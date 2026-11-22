@@ -11,26 +11,32 @@ use crate::factor::{DenseFactor, FactorKind, ScalarFactor, UnaryFactor};
 use crate::variable::VariableId;
 
 impl DenseFactor {
-    /// Marginalization with sum.
+    /// Reduces the specified variables using log-sum-exp.
     ///
-    /// Retained axes are moved before eliminated axes so that each assignment of
-    /// the retained variables corresponds to one logical reduction block.
+    /// Retained axes are moved before eliminated axes so that each assignment
+    /// of the retained variables corresponds to one logical reduction block.
     pub(super) fn reduce_sum_kernel(self, vars: &[VariableId]) -> DenseFactor {
         self.reduce_kernel(vars, lse_update, lse_finalize)
     }
 
-    /// Marginalize with max.
+    /// Reduces the specified variables using maximization.
     ///
-    /// Retained axes are moved before eliminated axes so that each assignment of
-    /// the retained variables corresponds to one logical reduction block.
+    /// Retained axes are moved before eliminated axes so that each assignment
+    /// of the retained variables corresponds to one logical reduction block.
     pub(super) fn reduce_max_kernel(self, vars: &[VariableId]) -> DenseFactor {
         self.reduce_kernel(vars, |value, max, _| *max = max.max(value), |max, _| max)
     }
 
+    /// Reduces the specified variables using log-sum-exp, writing into `output`.
+    ///
+    /// Reuses compatible destination storage when possible.
     pub(super) fn reduce_sum_into(&self, vars: &[VariableId], output: &mut FactorKind) {
         self.reduce_into_kernel(vars, output, lse_update, lse_finalize);
     }
 
+    /// Reduces the specified variables using maximization, writing into `output`.
+    ///
+    /// Reuses compatible destination storage when possible.
     pub(super) fn reduce_max_into(&self, vars: &[VariableId], output: &mut FactorKind) {
         self.reduce_into_kernel(
             vars,
@@ -237,6 +243,13 @@ fn build_reduction(
     })
 }
 
+/// Applies a reduction over consecutive blocks of input values.
+///
+/// Each output element is computed from `elim_size` consecutive input values.
+/// The `update` function accumulates values within a block, and `finalize`
+/// produces the corresponding reduced value.
+///
+/// The input iterator must contain enough values for every output block.
 fn write_reduction<'a>(
     input: impl Iterator<Item = &'a f64>,
     elim_size: usize,

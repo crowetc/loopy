@@ -1,8 +1,10 @@
-//! Synchronous message-passing schedule.
+//! Synchronous belief-propagation schedule.
 //!
-//! All messages in an iteration are computed from the message state at the
-//! start of the iteration. Updates are committed only after every message has
-//! been computed, preserving synchronous update semantics.
+//! Computes all messages from the state at the beginning of each iteration.
+//! Updated messages are staged in a separate buffer and committed together,
+//! ensuring that updates are not visible until the next iteration.
+//!
+//! The staging buffer is reused across iterations to reduce allocations.
 
 use crate::belief_state::BeliefState;
 use crate::factor::{FactorDistance, FactorKind, FactorNormalize, FactorOps};
@@ -14,14 +16,16 @@ use super::updates::compute_message_into;
 
 /// A synchronous belief-propagation schedule.
 ///
-/// Message updates are staged for an entire iteration before being committed,
-/// so no update is visible to another message computed in the same iteration.
+/// All messages are updated simultaneously using the previous iteration's
+/// message state.
 #[derive(Clone, Debug, Default)]
 pub struct Synchronous {
+    // Reusable buffer for messages computed during the next iteration.
     next: Vec<Option<Message>>,
 }
 
 impl Synchronous {
+    /// Creates a new synchronous message-passing schedule.
     pub fn new() -> Self {
         Self::default()
     }
