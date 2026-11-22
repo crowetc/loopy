@@ -129,6 +129,7 @@ impl MessageStore {
     ///
     /// The returned slice contains the [`MessageId`] for every message whose
     /// source is `variable`.
+    #[allow(dead_code)]
     pub(crate) fn variable_out(&self, variable: VariableId) -> &[MessageId] {
         self.variable_out
             .get(variable.index())
@@ -151,6 +152,7 @@ impl MessageStore {
     ///
     /// The returned slice contains the [`MessageId`] for every message whose
     /// source is `factor`.
+    #[allow(dead_code)]
     pub(crate) fn factor_out(&self, factor: FactorId) -> &[MessageId] {
         self.factor_out
             .get(factor.index())
@@ -182,11 +184,6 @@ impl MessageStore {
     #[cfg(test)]
     pub(crate) fn set(&mut self, id: MessageId, message: Message) {
         self.messages[id.index()] = Some(message);
-    }
-
-    /// Returns the number of message slots in the store.
-    pub(crate) fn num_messages(&self) -> usize {
-        self.messages.len()
     }
 
     //

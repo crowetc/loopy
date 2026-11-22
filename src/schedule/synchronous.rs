@@ -41,22 +41,22 @@ where
 
         state.messages().prepare_buffer(&mut self.next);
 
-        for index in 0..state.messages().num_messages() {
+        for (index, output) in self.next.iter_mut().enumerate() {
             let id = MessageId::new(index);
 
-            compute_message_into::<S>(state, id, &mut self.next[index]);
+            compute_message_into::<S>(state, id, output);
 
             // Normalize the newly computed message.
-            if let Some(message) = self.next[index].take() {
+            if let Some(message) = output.take() {
                 let factor = <FactorKind as FactorNormalize<S>>::normalize(message.into_factor());
 
-                self.next[index] = Some(
+                *output = Some(
                     Message::try_from(factor)
                         .expect("normalization must preserve message dimensionality"),
                 );
             }
 
-            let Some(message) = self.next[index].as_ref() else {
+            let Some(message) = output.as_ref() else {
                 continue;
             };
 
