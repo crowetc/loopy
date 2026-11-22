@@ -1,26 +1,50 @@
+//! Message-update computations for belief propagation.
+//!
+//! Computes variable-to-factor and factor-to-variable messages using the
+//! current belief state. Results are written to a separate destination,
+//! leaving the source messages unchanged.
+//!
+//! Existing destination storage is reused where supported by the factor
+//! operations.
+
 use crate::belief_state::BeliefState;
 use crate::factor::{Factor, FactorKind, FactorOps};
 use crate::message::{Endpoint, Message, MessageId};
 use crate::semiring::Semiring;
 
-pub(crate) fn compute_message<S>(state: &BeliefState<S>, message_id: MessageId) -> Option<Message>
-where
+/// Computes the message identified by `message_id` into `output`.
+///
+/// Dispatches to the appropriate update based on the direction of the edge.
+/// The destination may contain a previous message whose storage can be reused.
+///
+/// An absent message is represented by `None`.
+pub(crate) fn compute_message_into<S>(
+    state: &BeliefState<S>,
+    message_id: MessageId,
+    output: &mut Option<Message>,
+) where
     S: Semiring,
     FactorKind: FactorOps<S>,
 {
     let edge = state.messages().edge(message_id);
 
     match (edge.from, edge.to) {
-        (Endpoint::Variable(_), Endpoint::Factor(_)) => variable_to_factor::<S>(state, message_id),
-
-        (Endpoint::Factor(_), Endpoint::Variable(_)) => factor_to_variable::<S>(state, message_id),
-
+        (Endpoint::Variable(_), Endpoint::Factor(_)) => {
+            variable_to_factor_into::<S>(state, message_id, output);
+        }
+        (Endpoint::Factor(_), Endpoint::Variable(_)) => {
+            factor_to_variable_into::<S>(state, message_id, output);
+        }
         _ => unreachable!("factor-graph edges must connect a variable and a factor"),
     }
 }
 
-fn variable_to_factor<S>(state: &BeliefState<S>, message_id: MessageId) -> Option<Message>
-where
+/// Combines incoming factor-to-variable messages, excluding the destination factor.
+fn variable_to_factor_into<S>(
+    state: &BeliefState<S>,
+    message_id: MessageId,
+    output: &mut Option<Message>,
+) where
     S: Semiring,
     FactorKind: FactorOps<S>,
 {
@@ -30,38 +54,51 @@ where
         unreachable!("expected variable-to-factor edge");
     };
 
-    let mut accumulator = None;
+    let mut incoming = state
+        .messages()
+        .variable_in(variable)
+        .iter()
+        .filter_map(|&id| {
+            let edge = state.messages().edge(id);
 
-    for &incoming_id in state.messages().variable_in(variable) {
-        let incoming_edge = state.messages().edge(incoming_id);
-
-        let (Endpoint::Factor(source_factor), Endpoint::Variable(_)) =
-            (incoming_edge.from, incoming_edge.to)
-        else {
-            unreachable!("expected factor-to-variable edge");
-        };
-
-        if source_factor == factor {
-            continue;
-        }
-
-        let Some(message) = state.messages().get(incoming_id) else {
-            continue;
-        };
-
-        accumulator = Some(match accumulator {
-            None => message.factor().clone(),
-            Some(factor) => <FactorKind as FactorOps<S>>::combine(factor, message.factor()),
+            if edge.from == Endpoint::Factor(factor) {
+                None
+            } else {
+                state.messages().get(id)
+            }
         });
+
+    let Some(first) = incoming.next() else {
+        *output = None;
+        return;
+    };
+
+    let mut result = first.factor().clone();
+
+    for message in incoming {
+        result = <FactorKind as FactorOps<S>>::combine(result, message.factor());
     }
 
-    accumulator.map(|factor| {
-        Message::try_from(factor).expect("variable-to-factor update must produce a unary factor")
-    })
+    // A message must have exactly one variable.
+    assert_eq!(result.ndim(), 1);
+
+    match output {
+        Some(destination) => {
+            *destination.factor_mut() = result;
+        }
+        None => {
+            *output =
+                Some(Message::try_from(result).expect("variable-to-factor result must be unary"));
+        }
+    }
 }
 
-fn factor_to_variable<S>(state: &BeliefState<S>, message_id: MessageId) -> Option<Message>
-where
+/// Combines the factor potential with incoming messages, then reduces to the destination variable.
+fn factor_to_variable_into<S>(
+    state: &BeliefState<S>,
+    message_id: MessageId,
+    output: &mut Option<Message>,
+) where
     S: Semiring,
     FactorKind: FactorOps<S>,
 {
@@ -71,25 +108,16 @@ where
         unreachable!("expected factor-to-variable edge");
     };
 
-    // Start with the factor represented by this node.
     let mut result = state
         .graph()
         .factor(factor)
         .expect("message edge must reference a valid factor")
         .clone();
 
-    // Incorporate incoming variable -> factor messages, excluding the
-    // destination variable.
     for &incoming_id in state.messages().factor_in(factor) {
         let incoming_edge = state.messages().edge(incoming_id);
 
-        let (Endpoint::Variable(source_variable), Endpoint::Factor(_)) =
-            (incoming_edge.from, incoming_edge.to)
-        else {
-            unreachable!("expected variable-to-factor edge");
-        };
-
-        if source_variable == variable {
+        if incoming_edge.from == Endpoint::Variable(variable) {
             continue;
         }
 
@@ -100,17 +128,23 @@ where
         result = <FactorKind as FactorOps<S>>::combine(result, message.factor());
     }
 
-    // Marginalize every variable except the destination.
+    // Eliminate every variable except the message destination.
     let reduce_vars: Vec<_> = result
         .scope()
         .iter()
         .copied()
-        .filter(|id| *id != variable)
+        .filter(|&id| id != variable)
         .collect();
 
-    let result = <FactorKind as FactorOps<S>>::reduce(result, &reduce_vars);
+    if let Some(destination) = output.as_mut() {
+        <FactorKind as FactorOps<S>>::reduce_into(&result, &reduce_vars, destination.factor_mut());
+        assert_eq!(destination.factor().ndim(), 1);
+    } else {
+        let reduced = <FactorKind as FactorOps<S>>::reduce(result, &reduce_vars);
 
-    Some(Message::try_from(result).expect("factor-to-variable update must produce a unary factor"))
+        *output =
+            Some(Message::try_from(reduced).expect("factor-to-variable result must be unary"));
+    }
 }
 
 // ============================================================================
@@ -211,7 +245,9 @@ mod tests {
 
         let message_id = variable_to_factor_id(&state, x, factor);
 
-        let result = variable_to_factor::<LogSumProduct>(&state, message_id);
+        let mut result = None;
+
+        variable_to_factor_into::<LogSumProduct>(&state, message_id, &mut result);
 
         assert!(result.is_none());
     }
@@ -240,8 +276,11 @@ mod tests {
 
         let outgoing_id = variable_to_factor_id(&state, x, f);
 
-        let result =
-            variable_to_factor::<LogSumProduct>(&state, outgoing_id).expect("expected a message");
+        let mut result = None;
+
+        variable_to_factor_into::<LogSumProduct>(&state, outgoing_id, &mut result);
+
+        let result = result.expect("expected a message");
 
         let FactorKind::Unary(result) = result.factor() else {
             panic!("expected unary factor");
@@ -281,8 +320,11 @@ mod tests {
 
         let outgoing_id = variable_to_factor_id(&state, x, f);
 
-        let result =
-            variable_to_factor::<LogSumProduct>(&state, outgoing_id).expect("expected a message");
+        let mut result = None;
+
+        variable_to_factor_into::<LogSumProduct>(&state, outgoing_id, &mut result);
+
+        let result = result.expect("expected a message");
 
         let FactorKind::Unary(result) = result.factor() else {
             panic!("expected unary factor");
@@ -309,8 +351,11 @@ mod tests {
 
         let message_id = factor_to_variable_id(&state, factor_id, x);
 
-        let result = factor_to_variable::<LogSumProduct>(&state, message_id)
-            .expect("factor should produce a message");
+        let mut result = None;
+
+        factor_to_variable_into::<LogSumProduct>(&state, message_id, &mut result);
+
+        let result = result.expect("expected a message");
 
         let FactorKind::Unary(result) = result.factor() else {
             panic!("expected unary factor");
@@ -343,8 +388,11 @@ mod tests {
 
         let outgoing_id = factor_to_variable_id(&state, factor_id, x);
 
-        let result = factor_to_variable::<LogSumProduct>(&state, outgoing_id)
-            .expect("expected factor-to-variable message");
+        let mut result = None;
+
+        factor_to_variable_into::<LogSumProduct>(&state, outgoing_id, &mut result);
+
+        let result = result.expect("expected a message");
 
         let FactorKind::Unary(result) = result.factor() else {
             panic!("expected unary factor");

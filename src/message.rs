@@ -53,6 +53,14 @@ impl Message {
         &self.factor
     }
 
+    /// Returns mutable access to the factor carried by this message.
+    ///
+    /// The caller must preserve the invariant that messages have
+    /// exactly one variable.
+    pub(crate) fn factor_mut(&mut self) -> &mut FactorKind {
+        &mut self.factor
+    }
+
     /// Consumes the message and returns its underlying factor.
     pub(crate) fn into_factor(self) -> FactorKind {
         self.factor

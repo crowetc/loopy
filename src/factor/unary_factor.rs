@@ -63,6 +63,7 @@ impl UnaryFactor {
         &self.data
     }
 
+    /// Returns mutable access to the factor's log-space values.
     pub(crate) fn data_mut(&mut self) -> &mut [f64] {
         &mut self.data
     }
@@ -177,7 +178,10 @@ impl UnaryFactor {
 
     /// Combines this unary factor with a scalar, writing into `output`.
     ///
-    /// Reuses a compatible unary destination without allocating.
+    /// Reuses the destination's storage when it has the same variable and
+    /// cardinality. Otherwise, replaces the destination with a new unary factor.
+    ///
+    /// Both inputs remain unchanged.
     fn combine_scalar_into(&self, scalar: &ScalarFactor, output: &mut FactorKind) {
         match output {
             FactorKind::Unary(result) if result.var == self.var && result.card == self.card => {

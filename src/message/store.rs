@@ -120,40 +120,16 @@ impl MessageStore {
         }
     }
 
-    //
-    // Messages
-    //
-
     /// Returns the directed edge associated with `id`.
     pub(crate) fn edge(&self, id: MessageId) -> DirectedEdge {
         self.edges[id.index()]
     }
 
-    /// Returns the message associated with `id`, if one has been computed.
-    pub(crate) fn get(&self, id: MessageId) -> Option<&Message> {
-        self.messages[id.index()].as_ref()
-    }
-
-    /// Stores `message` in the slot associated with `id`.
-    ///
-    /// Any previously computed message for the edge is replaced.
-    pub(crate) fn set(&mut self, id: MessageId, message: Message) {
-        self.messages[id.index()] = Some(message);
-    }
-
-    /// Returns the number of message slots in the store.
-    pub(crate) fn num_messages(&self) -> usize {
-        self.messages.len()
-    }
-
-    //
-    // Adjacency
-    //
-
     /// Returns the messages directed from `variable` to neighboring factors.
     ///
     /// The returned slice contains the [`MessageId`] for every message whose
     /// source is `variable`.
+    #[allow(dead_code)]
     pub(crate) fn variable_out(&self, variable: VariableId) -> &[MessageId] {
         self.variable_out
             .get(variable.index())
@@ -176,6 +152,7 @@ impl MessageStore {
     ///
     /// The returned slice contains the [`MessageId`] for every message whose
     /// source is `factor`.
+    #[allow(dead_code)]
     pub(crate) fn factor_out(&self, factor: FactorId) -> &[MessageId] {
         self.factor_out
             .get(factor.index())
@@ -192,6 +169,54 @@ impl MessageStore {
             .get(factor.index())
             .map(Vec::as_slice)
             .unwrap_or(&[])
+    }
+
+    //
+    // Messages
+    //
+
+    /// Returns the message associated with `id`, if one has been computed.
+    pub(crate) fn get(&self, id: MessageId) -> Option<&Message> {
+        self.messages[id.index()].as_ref()
+    }
+
+    /// Replaces a message in the store for testing.
+    #[cfg(test)]
+    pub(crate) fn set(&mut self, id: MessageId, message: Message) {
+        self.messages[id.index()] = Some(message);
+    }
+
+    //
+    // Message Buffers
+    //
+
+    /// Resizes `buffer` to match the number of message slots.
+    ///
+    /// Existing entries are preserved. New entries are initialized to `None`,
+    /// allowing schedules to reuse previously allocated message storage.
+    pub(crate) fn prepare_buffer(&self, buffer: &mut Vec<Option<Message>>) {
+        buffer.resize_with(self.messages.len(), || None);
+    }
+
+    /// Exchanges the current messages with `other`.
+    ///
+    /// Both buffers must have the same number of slots. Swapping allows a
+    /// schedule to commit a complete set of updates without copying messages.
+    ///
+    /// The previous message buffer is returned through `other` and can be
+    /// reused for the next iteration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffers have different lengths.
+    pub(crate) fn swap_messages(&mut self, other: &mut Vec<Option<Message>>) {
+        assert_eq!(
+            self.messages.len(),
+            other.len(),
+            "message buffer size mismatch"
+        );
+
+        std::mem::swap(&mut self.messages, other);
     }
 
     //

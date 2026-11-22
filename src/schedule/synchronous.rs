@@ -1,8 +1,10 @@
-//! Synchronous message-passing schedule.
+//! Synchronous belief-propagation schedule.
 //!
-//! All messages in an iteration are computed from the message state at the
-//! start of the iteration. Updates are committed only after every message has
-//! been computed, preserving synchronous update semantics.
+//! Computes all messages from the state at the beginning of each iteration.
+//! Updated messages are staged in a separate buffer and committed together,
+//! ensuring that updates are not visible until the next iteration.
+//!
+//! The staging buffer is reused across iterations to reduce allocations.
 
 use crate::belief_state::BeliefState;
 use crate::factor::{FactorDistance, FactorKind, FactorNormalize, FactorOps};
@@ -10,18 +12,20 @@ use crate::message::{Message, MessageId};
 use crate::semiring::Semiring;
 
 use super::Schedule;
-use super::updates::compute_message;
+use super::updates::compute_message_into;
 
 /// A synchronous belief-propagation schedule.
 ///
-/// Message updates are staged for an entire iteration before being committed,
-/// so no update is visible to another message computed in the same iteration.
+/// All messages are updated simultaneously using the previous iteration's
+/// message state.
 #[derive(Clone, Debug, Default)]
 pub struct Synchronous {
-    updates: Vec<(MessageId, Message)>,
+    // Reusable buffer for messages computed during the next iteration.
+    next: Vec<Option<Message>>,
 }
 
 impl Synchronous {
+    /// Creates a new synchronous message-passing schedule.
     pub fn new() -> Self {
         Self::default()
     }
@@ -35,19 +39,26 @@ where
     fn step(&mut self, state: &mut BeliefState<S>) -> f64 {
         let mut max_residual: f64 = 0.0;
 
-        self.updates.clear();
+        state.messages().prepare_buffer(&mut self.next);
 
-        for index in 0..state.messages().num_messages() {
+        for (index, output) in self.next.iter_mut().enumerate() {
             let id = MessageId::new(index);
 
-            let Some(message) = compute_message::<S>(state, id) else {
+            compute_message_into::<S>(state, id, output);
+
+            // Normalize the newly computed message.
+            if let Some(message) = output.take() {
+                let factor = <FactorKind as FactorNormalize<S>>::normalize(message.into_factor());
+
+                *output = Some(
+                    Message::try_from(factor)
+                        .expect("normalization must preserve message dimensionality"),
+                );
+            }
+
+            let Some(message) = output.as_ref() else {
                 continue;
             };
-
-            let factor = <FactorKind as FactorNormalize<S>>::normalize(message.into_factor());
-
-            let message = Message::try_from(factor)
-                .expect("normalization must preserve message dimensionality");
 
             let residual = match state.messages().get(id) {
                 Some(previous) => message.factor().distance(previous.factor()),
@@ -55,13 +66,9 @@ where
             };
 
             max_residual = max_residual.max(residual);
-
-            self.updates.push((id, message));
         }
 
-        for (id, message) in self.updates.drain(..) {
-            state.messages_mut().set(id, message);
-        }
+        state.messages_mut().swap_messages(&mut self.next);
 
         max_residual
     }
